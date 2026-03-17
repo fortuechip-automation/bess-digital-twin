@@ -1,12 +1,11 @@
 # BESS Digital Twin
 
 An open-source BESS (Battery Energy Storage System) digital twin lab deployed on Proxmox using isolated Linux virtual machines for simulation, database, and SCADA.
-
 ---
 
 ## 🔧 Overview
-
-This project simulates and monitors a Battery Energy Storage System using a modular architecture:
+This project models a real-world BESS architecture using a distributed, multi-VM design to simulate industrial control systems.
+It simulates and monitors a Battery Energy Storage System using a modular architecture:
 
 - Python-based BESS simulator
 - OPC UA bridge for industrial communication
@@ -49,11 +48,26 @@ The system is deployed on Proxmox using separate virtual machines:
 
 ---
 
-## ⚙️ Features 
-- BESS simulation (SOC, power, temperature)
-- OPC UA data exchange
-- PostgreSQL telemetry logging
-- Partial Ignition integration
+## ⚙️ ⚙️ Features
+
+- Scalable BESS simulation (10 inverters, 20 battery units)
+- Real-time telemetry generation:
+  - State of Charge (SOC)
+  - Voltage
+  - Current
+  - Power (active/reactive if applicable)
+- Equipment status and state modelling:
+  - Running / Standby / Fault states
+- Fault simulation:
+  - Over-temperature
+  - Overcurrent
+  - Communication loss
+  - Battery/PCS fault conditions
+- OPC UA data exchange for industrial communication
+- PostgreSQL telemetry logging (historian)
+- Ignition SCADA integration (partial, in progress)
+- Multi-VM deployment on Proxmox
+- Isolated lab network mimicking OT system segmentation
 
 ---
 
@@ -86,14 +100,6 @@ infra/          # Proxmox + network design
 docs/           # Architecture and roadmap
 
 ---
-## Key Features
-Python-based BESS simulator
-OPC UA telemetry bridge
-PostgreSQL telemetry historian
-Ignition SCADA integration
-Multi-VM deployment on Proxmox
-Isolated lab network architecture
-
 ## 🎯 Goal
 
 To build a realistic, modular, and scalable BESS digital twin platform for:
@@ -116,6 +122,6 @@ To build a realistic, modular, and scalable BESS digital twin platform for:
 ## 📈 Future Plans
 
 - EMS dispatch and optimisation
-- anomaly detection / AI
-- multi-inverter scaling
+- anomaly detection and AI based analytics.
+- multi-inverter system scaling
 - containerised deployment
