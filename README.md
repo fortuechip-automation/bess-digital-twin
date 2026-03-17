@@ -77,7 +77,13 @@ The system is deployed on Proxmox using separate virtual machines:
 ---
 
 ## 📁 Project Structure (Planned)
-simulator/      # BESS simulation logic opcua/          # OPC UA bridge and models db/             # Database schema and queries ignition/       # SCADA notes and screenshots infra/          # Proxmox + network design docs/           # Architecture and roadmap
+
+simulator/      # BESS simulation logic
+opcua/          # OPC UA bridge and models
+db/             # Database schema and queries
+ignition/       # SCADA notes and screenshots
+infra/          # Proxmox + network design
+docs/           # Architecture and roadmap
 
 ---
 ## Key Features
