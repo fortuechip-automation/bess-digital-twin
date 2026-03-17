@@ -18,6 +18,13 @@ This project simulates and monitors a Battery Energy Storage System using a modu
 
 ## 🧱 Architecture
 ---
+Simulation VM (Python BESS Simulator)
+        ↓
+OPC UA Bridge
+        ↓
+Database VM (PostgreSQL / TimescaleDB)
+        ↓
+Ignition SCADA VM
 
 ## 🖥️ Infrastructure
 
@@ -71,3 +78,30 @@ The system is deployed on Proxmox using separate virtual machines:
 ---
 
 ## 📁 Project Structure (Planned)
+simulator/      # BESS simulation logic opcua/          # OPC UA bridge and models db/             # Database schema and queries ignition/       # SCADA notes and screenshots infra/          # Proxmox + network design docs/           # Architecture and roadmap
+
+---
+
+## 🎯 Goal
+
+To build a realistic, modular, and scalable BESS digital twin platform for:
+
+- testing control strategies
+- simulating grid interactions
+- learning industrial automation systems
+- developing EMS algorithms
+
+---
+
+## 📌 Status
+
+🚧 Active development
+
+---
+
+## 📈 Future Plans
+
+- EMS dispatch and optimisation
+- anomaly detection / AI
+- multi-inverter scaling
+- containerised deployment
