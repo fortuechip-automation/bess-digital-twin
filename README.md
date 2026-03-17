@@ -49,8 +49,7 @@ The system is deployed on Proxmox using separate virtual machines:
 
 ---
 
-## ⚙️ Features (Current)
-
+## ⚙️ Features 
 - BESS simulation (SOC, power, temperature)
 - OPC UA data exchange
 - PostgreSQL telemetry logging
@@ -81,6 +80,13 @@ The system is deployed on Proxmox using separate virtual machines:
 simulator/      # BESS simulation logic opcua/          # OPC UA bridge and models db/             # Database schema and queries ignition/       # SCADA notes and screenshots infra/          # Proxmox + network design docs/           # Architecture and roadmap
 
 ---
+## Key Features
+Python-based BESS simulator
+OPC UA telemetry bridge
+PostgreSQL telemetry historian
+Ignition SCADA integration
+Multi-VM deployment on Proxmox
+Isolated lab network architecture
 
 ## 🎯 Goal
 
@@ -90,6 +96,8 @@ To build a realistic, modular, and scalable BESS digital twin platform for:
 - simulating grid interactions
 - learning industrial automation systems
 - developing EMS algorithms
+- learning digital twin architectures
+- a reusable automation lab
 
 ---
 
