@@ -4,8 +4,8 @@ import time
 DB_CONFIG = {
     "dbname": "bess",
     "user": "bessuser",
-    "password": "REDACTED",
-    "host": "172.20.0.10",
+    "password": "CHANGE ME",
+    "host": "DB HOST",
     "port": 5432
 }
 
