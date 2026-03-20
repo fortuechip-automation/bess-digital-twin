@@ -37,10 +37,10 @@ from opcua import Server, ua
 #  DB CONFIG
 # =========================
 DB_CONFIG = {
-    "host": "172.20.0.10",
+    "host": "DB_HOST",
     "database": "bess",
     "user": "bessuser",
-    "password": "REDACTED",
+    "password": "CHANGE_ME",
     "port": 5432,
 }
 
@@ -54,9 +54,9 @@ N_BATTERIES = 20
 #  OPC CONFIG
 # =========================
 # For lab safety, you can bind to a specific interface, e.g.:
-#   OPC_ENDPOINT = "opc.tcp://172.20.0.30:4840"
+#   OPC_ENDPOINT = "opc.tcp://SOURCEw_IP:4840"
 # Leaving it as 0.0.0.0 exposes to all networks on the VM.
-OPC_ENDPOINT = "opc.tcp://172.20.0.20:4840"
+OPC_ENDPOINT = "opc.tcp://OPC_HOST:4840"
 OPC_SERVER_NAME = "BESS_OPC_SERVER"
 OPC_NAMESPACE_URI = "http://bess.local"
 
@@ -154,7 +154,7 @@ def read_latest_battery_status(conn):
         return cur.fetchall()
 
 
-def insert_command_safe(conn, p_set_kw, mode_text, source_ip="172.20.0.30"):
+def insert_command_safe(conn, p_set_kw, mode_text, source_ip="SOURCE_IP"):
     """
     Insert command into bess_commands.
     If DB restarts, reconnect and retry once.

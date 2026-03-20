@@ -38,10 +38,10 @@ from psycopg2.extras import execute_values
 #  DB CONFIG
 # =========================================================
 DB_CONFIG = {
-    "host": "172.20.0.10",
+    "host": "DB_HOST",
     "database": "bess",
     "user": "bessuser",
-    "password": "REDACTED",
+    "password": "CHANGE_ME",
     "port": 5432,
 }
 
