@@ -27,6 +27,7 @@ Run:
 """
 
 import time
+import os
 from datetime import datetime
 
 import psycopg2
@@ -37,11 +38,11 @@ from opcua import Server, ua
 #  DB CONFIG
 # =========================
 DB_CONFIG = {
-    "host": "DB_HOST",
-    "database": "bess",
-    "user": "bessuser",
-    "password": "CHANGE_ME",
-    "port": 5432,
+    "host": os.getenv("BESS_DB_HOST", "DB_HOST"),
+    "database": os.getenv("BESS_DB_NAME", "bess"),
+    "user": os.getenv("BESS_DB_USER", "bessuser"),
+    "password": os.getenv("BESS_DB_PASSWORD", "CHANGE_ME"),
+    "port": int(os.getenv("BESS_DB_PORT", "5432")),
 }
 
 # =========================
@@ -56,7 +57,7 @@ N_BATTERIES = 20
 # For lab safety, you can bind to a specific interface, e.g.:
 #   OPC_ENDPOINT = "opc.tcp://SOURCEw_IP:4840"
 # Leaving it as 0.0.0.0 exposes to all networks on the VM.
-OPC_ENDPOINT = "opc.tcp://OPC_HOST:4840"
+OPC_ENDPOINT = os.getenv("BESS_OPC_ENDPOINT", "opc.tcp://OPC_HOST:4840")
 OPC_SERVER_NAME = "BESS_OPC_SERVER"
 OPC_NAMESPACE_URI = "http://bess.local"
 
@@ -154,12 +155,15 @@ def read_latest_battery_status(conn):
         return cur.fetchall()
 
 
-def insert_command_safe(conn, p_set_kw, mode_text, source_ip="SOURCE_IP"):
+def insert_command_safe(conn, p_set_kw, mode_text, source_ip=None):
     """
     Insert command into bess_commands.
     If DB restarts, reconnect and retry once.
     Returns (conn, success_bool).
     """
+    if source_ip is None:
+        source_ip = os.getenv("BESS_OPC_SOURCE_IP", "SOURCE_IP")
+
     sql = """
         INSERT INTO bess_commands (p_set_kw, mode_set, source_ip)
         VALUES (%s, %s, %s);
