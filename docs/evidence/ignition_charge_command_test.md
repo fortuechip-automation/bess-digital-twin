@@ -18,7 +18,12 @@ The command was successfully received by the simulator and executed.
 
 ## Example Output
 
-```text
-COMMAND RECEIVED → P_set=9.0kW, Mode=CHARGE
-COMMAND EXECUTED → P_set=9.0 kW, Mode=CHARGE
-SITE → SOC=50.18% | P_set=9.0 kW | P_actual=8.7 kW | Vdc=800.1 V | I=10.9 A | Mode=2 (CHARGE)
+    COMMAND RECEIVED → P_set=9.0kW, Mode=CHARGE
+    COMMAND EXECUTED → P_set=9.0 kW, Mode=CHARGE
+    SITE → SOC=50.18% | P_set=9.0 kW | P_actual=8.7 kW | Vdc=800.1 V | I=10.9 A | Mode=2 (CHARGE)
+
+## Notes
+
+The command path is functional from Ignition to the simulator.
+
+A minor improvement is needed later: Ignition or the OPC UA bridge currently appears to create separate command records for setpoint and mode changes. This can be cleaned up in a future update.
