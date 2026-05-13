@@ -28,6 +28,7 @@ FIX INCLUDED:
 
 import time
 import random
+import os
 from datetime import datetime
 from typing import Tuple
 
@@ -38,11 +39,11 @@ from psycopg2.extras import execute_values
 #  DB CONFIG
 # =========================================================
 DB_CONFIG = {
-    "host": "DB_HOST",
-    "database": "bess",
-    "user": "bessuser",
-    "password": "CHANGE_ME",
-    "port": 5432,
+    "host": os.getenv("BESS_DB_HOST", "DB_HOST"),
+    "database": os.getenv("BESS_DB_NAME", "bess"),
+    "user": os.getenv("BESS_DB_USER", "bessuser"),
+    "password": os.getenv("BESS_DB_PASSWORD", "CHANGE_ME"),
+    "port": int(os.getenv("BESS_DB_PORT", "5432")),
 }
 
 # =========================================================
