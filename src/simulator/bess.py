@@ -35,6 +35,11 @@ from typing import Tuple
 import psycopg2
 from psycopg2.extras import execute_values
 
+try:
+    from .fleet import BESSFleet
+except ImportError:
+    from fleet import BESSFleet
+
 # =========================================================
 #  DB CONFIG
 # =========================================================
@@ -144,6 +149,10 @@ battery_fault = [False for _ in range(N_BATTERIES)]
 
 # Inverters
 inverter_fault = [False for _ in range(N_INVERTERS)]
+
+# Modular fleet model. The DB/command/alarm runtime still lives in this file,
+# but the simulation calculation is delegated to BESSFleet.
+fleet = BESSFleet()
 
 # =========================================================
 #  DB: CENTRALIZED CONNECTION
@@ -360,131 +369,11 @@ def simulate_fleet_step(site_p_set_kw: float):
       inv_rows: list[(inverter_id, mode, p_set_kw, p_actual_kw, vdc, idc, temp_c, fault)]
       bat_rows: list[(battery_id, soc, vdc, idc, p_dc_kw, temp_c, fault)]
       site: (soc, mode, p_set_kw, p_actual_kw, vdc, idc, temp_c)
+
+    The pure simulation model now lives in src/simulator/fleet.py.
+    This wrapper preserves the old function contract for the runtime loop.
     """
-    site_p_set_limited = clamp(site_p_set_kw, SITE_MAX_DISCHARGE_KW, SITE_MAX_CHARGE_KW)
-
-    # split across inverters (commanded)
-    per_inv_set = site_p_set_limited / N_INVERTERS if N_INVERTERS else 0.0
-    per_inv_set = clamp(per_inv_set, -INV_MAX_KW, INV_MAX_KW)
-
-    dt_hours = TELEMETRY_INTERVAL / 3600.0
-    per_bat_capacity_kwh = SITE_CAPACITY_KWH / N_BATTERIES
-
-    inv_rows = []
-    bat_rows = []
-
-    # this is computed during the inverter loop
-    p_actual_site = 0.0
-    vdc_site_list = []
-    temp_site_list = []
-
-    for inv_idx in range(N_INVERTERS):
-        inv_id = inv_idx + 1
-        inv_set_kw = 0.0 if inverter_fault[inv_idx] else per_inv_set
-
-        b1, b2 = inv_to_bats(inv_idx)
-        per_bat_dc_kw = clamp(inv_set_kw / 2.0, -BAT_MAX_KW, BAT_MAX_KW)
-
-        bat_v = []
-        bat_i = []
-        bat_t = []
-        bat_fault_any = False
-
-        for bat_idx in (b1, b2):
-            bat_id = bat_idx + 1
-            fault = battery_fault[bat_idx]
-
-            if fault:
-                bat_fault_any = True
-                p_dc_kw = 0.0
-            else:
-                p_dc_kw = per_bat_dc_kw
-
-            # SOC update
-            if p_dc_kw >= 0:
-                energy_change_kwh = p_dc_kw * dt_hours * BAT_ROUNDTRIP_EFF
-            else:
-                energy_change_kwh = p_dc_kw * dt_hours / BAT_ROUNDTRIP_EFF
-
-            soc_new = battery_soc[bat_idx] + (energy_change_kwh / per_bat_capacity_kwh) * 100.0
-            soc_new = clamp(soc_new, 0.0, 100.0)
-            battery_soc[bat_idx] = soc_new
-
-            # Vdc from SOC curve + noise
-            vdc = 760.0 + (840.0 - 760.0) * (soc_new / 100.0) + random.uniform(-2.0, 2.0)
-            idc = 0.0 if abs(vdc) < 1e-6 else (p_dc_kw * 1000.0 / vdc)
-            temp_c = 25.0 + (abs(p_dc_kw) / 250.0) * 5.0 + random.uniform(-0.5, 0.5)
-
-            bat_rows.append((
-                bat_id,
-                r2(soc_new),
-                r2(vdc),
-                r2(idc),
-                r2(p_dc_kw),
-                r2(temp_c),
-                bool(fault),
-            ))
-
-            bat_v.append(vdc)
-            bat_i.append(idc)
-            bat_t.append(temp_c)
-
-        vdc_inv = sum(bat_v) / 2.0
-        idc_inv = sum(bat_i)
-        p_dc_inv = per_bat_dc_kw * 2.0
-
-        # DC->AC inverter efficiency
-        if p_dc_inv >= 0:
-            p_ac_inv = p_dc_inv * INV_EFF
-        else:
-            p_ac_inv = p_dc_inv / INV_EFF
-
-        # Determine inverter mode/fault
-        if inverter_fault[inv_idx] or bat_fault_any:
-            mode_inv = MODE_IDLE
-            fault_inv = True
-            p_ac_inv = 0.0
-        else:
-            mode_inv = mode_from_setpoint(p_ac_inv)  # mode follows ACTUAL power
-            fault_inv = False
-
-        temp_inv = sum(bat_t) / 2.0
-
-        inv_rows.append((
-            inv_id,
-            int(mode_inv),
-            r2(inv_set_kw),
-            r2(p_ac_inv),
-            r2(vdc_inv),
-            r2(idc_inv),
-            r2(temp_inv),
-            bool(fault_inv),
-        ))
-
-        p_actual_site += p_ac_inv
-        vdc_site_list.append(vdc_inv)
-        temp_site_list.append(temp_inv)
-
-    # Site aggregations
-    soc_site = sum(battery_soc) / N_BATTERIES
-    vdc_site = sum(vdc_site_list) / len(vdc_site_list) if vdc_site_list else 800.0
-    temp_site = sum(temp_site_list) / len(temp_site_list) if temp_site_list else 25.0
-    idc_site = 0.0 if abs(vdc_site) < 1e-6 else (p_actual_site * 1000.0 / vdc_site)
-
-    # ✅ FIX: Site Mode must reflect ACTUAL net AC power (realistic)
-    mode_site = mode_from_setpoint(p_actual_site)
-
-    site_tuple = (
-        r2(soc_site),
-        int(mode_site),
-        r2(site_p_set_kw),      # keep ORIGINAL setpoint for logging/alarms
-        r2(p_actual_site),
-        r2(vdc_site),
-        r2(idc_site),
-        r2(temp_site),
-    )
-
-    return inv_rows, bat_rows, site_tuple
+    return fleet.step(site_p_set_kw)
 
 # =========================================================
 #  FAST INSERTS (execute_values)
@@ -557,7 +446,7 @@ def main():
 
     print("--- BESS Fleet Simulation Started ---")
     print(f"Inverters: {N_INVERTERS} | Batteries: {N_BATTERIES}")
-    print(f"Initial SOC(avg): {sum(battery_soc)/N_BATTERIES:.2f}%")
+    print(f"Initial SOC(avg): {fleet.average_soc:.2f}%")
 
     conn = get_connection()
     cur = conn.cursor()
