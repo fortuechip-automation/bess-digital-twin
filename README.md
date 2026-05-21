@@ -1,127 +1,174 @@
 # BESS Digital Twin
 
-An open-source BESS (Battery Energy Storage System) digital twin lab deployed on Proxmox using isolated Linux virtual machines for simulation, database, and SCADA.
----
+A working Battery Energy Storage System (BESS) digital twin lab for learning industrial automation, SCADA integration, telemetry pipelines, and control-system architecture.
 
-## 🔧 Overview
-This project models a real-world BESS architecture using a distributed, multi-VM design to simulate industrial control systems.
-It simulates and monitors a Battery Energy Storage System using a modular architecture:
+The project runs as a small distributed OT-style lab on Proxmox: a Python simulator produces BESS telemetry, PostgreSQL stores live state and commands, an OPC UA bridge exposes the data to Ignition, and an Ignition Perspective dashboard monitors and controls the simulated plant.
 
-- Python-based BESS simulator
-- OPC UA bridge for industrial communication
-- PostgreSQL database for telemetry storage
-- Ignition SCADA for visualization and alarms
-- Proxmox-based virtual lab with network isolation
+## Current Status
 
----
+The core simulator -> database -> OPC UA -> Ignition loop is working.
 
-## 🧱 Architecture
----
-Simulation VM (Python BESS Simulator)
-        ↓
-OPC UA Bridge
-        ↓
-Database VM (PostgreSQL / TimescaleDB)
-        ↓
-Ignition SCADA VM
+- Python BESS simulator models site, inverter, and battery telemetry.
+- PostgreSQL stores site status, equipment telemetry, alarms, and commands.
+- OPC UA bridge publishes live values from PostgreSQL for SCADA consumption.
+- Ignition Perspective displays live BESS values and sends charge/discharge commands.
+- Runtime helper scripts start, stop, and check the simulator and OPC bridge.
+- Local environment files keep credentials out of git.
 
-## 🖥️ Infrastructure
+See [docs/current_status.md](docs/current_status.md) for the latest working state and test evidence.
 
-The system is deployed on Proxmox using separate virtual machines:
+## Why This Project Exists
 
-- **Simulation VM**
-  - Runs BESS simulator and OPC UA bridge
+This repo is a practical automation lab, not just a toy simulator. It is designed to show how a BESS-style control system can be structured across realistic layers:
 
-- **Database VM**
-  - Runs PostgreSQL for telemetry and event storage
+- plant simulation and state modelling
+- telemetry persistence
+- command handling
+- OPC UA industrial communication
+- SCADA dashboard integration
+- alarm and runtime operations planning
+- Proxmox-hosted lab infrastructure
 
-- **Ignition VM**
-  - Runs Ignition SCADA for dashboards and alarms
+The goal is to build a portfolio-quality engineering project that demonstrates software, controls, databases, and SCADA working together.
 
----
+## Architecture
 
-## 🌐 Network Design
+```text
+Proxmox Host (Dell Precision T7810)
+|
++-- VM1: BESS Engine (Ubuntu 22.04.5)
+|   |
+|   +-- bess.py
+|   |   +-- Simulates site, inverter, and battery telemetry
+|   |   +-- Writes telemetry to PostgreSQL
+|   |   +-- Polls latest commands from PostgreSQL
+|   |   +-- Simulator -> PostgreSQL (TCP/5432)
+|   |
+|   +-- opc_bridge.py
+|       +-- Reads telemetry from PostgreSQL
+|       +-- Exposes OPC UA tags for SCADA
+|       +-- Writes SCADA commands to PostgreSQL
+|
++-- VM2: Database Server (Ubuntu 22.04.5)
+|   |
+|   +-- PostgreSQL
+|   +-- TimescaleDB telemetry storage
+|   |
+|   +-- Key tables
+|       +-- bess_telemetry
+|       +-- bess_status
+|       +-- site_status
+|       +-- inverter_status
+|       +-- battery_status
+|       +-- bess_alarms
+|       +-- bess_commands
+|       +-- ems_decisions
+|       +-- system_events
+|
++-- VM3: Ignition SCADA
+    |
+    +-- Perspective dashboard
+    +-- OPC UA telemetry reads from opc_bridge.py on VM1
+    +-- Command writes to opc_bridge.py on VM1
+    +-- Ignition -> OPC UA bridge (TCP/4840)
+```
 
-- Dedicated lab network separate from main network
-- Mimics industrial OT network segmentation
-- Controlled communication between system components
+Runtime deployment:
 
----
+- Simulation VM: Python simulator and OPC UA bridge
+- Database VM: PostgreSQL telemetry, alarms, and commands
+- Ignition VM: SCADA dashboards, tags, and operator controls
+- Proxmox host: isolated lab infrastructure
 
-## ⚙️ ⚙️ Features
+## Features
 
-- Scalable BESS simulation (10 inverters, 20 battery units)
-- Real-time telemetry generation:
-  - State of Charge (SOC)
-  - Voltage
-  - Current
-  - Power (active/reactive if applicable)
-- Equipment status and state modelling:
-  - Running / Standby / Fault states
-- Fault simulation:
-  - Over-temperature
-  - Overcurrent
-  - Communication loss
-  - Battery/PCS fault conditions
-- OPC UA data exchange for industrial communication
-- PostgreSQL telemetry logging (historian)
-- Ignition SCADA integration (partial, in progress)
-- Multi-VM deployment on Proxmox
-- Isolated lab network mimicking OT system segmentation
+- Site-level BESS simulation with SOC, voltage, current, power, temperature, and operating mode
+- Multi-equipment model covering inverters and battery units
+- Charge, discharge, and idle command handling
+- PostgreSQL-backed telemetry and command path
+- OPC UA bridge for industrial-style data exchange
+- Ignition Perspective integration for live dashboarding and control
+- Alarm table support for SCADA alarm development
+- Local run scripts for repeatable simulator and bridge operation
+- Documentation for runtime operation, status, and SCADA progress
 
----
+## Repository Layout
 
-## 🚧 Work in Progress
+```text
+config/                 Host-specific configuration templates and local env files
+data/                   Sample telemetry and development data
+deployment/             Deployment notes and infrastructure material
+docs/                   Status, runbook, evidence, and progress notes
+src/database/           PostgreSQL client and schema
+src/opcua_bridge/       OPC UA server and bridge logic
+src/simulator/          BESS simulator models and runtime entrypoint
+tests/                  Simulator tests
+```
 
-- Alarm management system
-- OPC UA namespace cleanup
-- Ignition dashboards
-- EMS (Energy Management System) logic
+## Run Locally on the Lab VM
 
----
+The live lab runs from:
 
-## 🛠️ Tech Stack
+```bash
+cd /home/fox/bess-digital-twin
+```
 
-- Python
-- OPC UA (python-opcua)
-- PostgreSQL / TimescaleDB (planned)
-- Ignition SCADA
-- Proxmox VE
+Check runtime status:
 
----
+```bash
+./status_bess_stack.sh
+```
 
-## 📁 Project Structure (Planned)
+Start simulator and OPC bridge:
 
-simulator/      # BESS simulation logic
-opcua/          # OPC UA bridge and models
-db/             # Database schema and queries
-ignition/       # SCADA notes and screenshots
-infra/          # Proxmox + network design
-docs/           # Architecture and roadmap
+```bash
+./start_bess_stack.sh
+```
 
----
-## 🎯 Goal
+Stop both processes:
 
-To build a realistic, modular, and scalable BESS digital twin platform for:
+```bash
+./stop_bess_stack.sh
+```
 
-- testing control strategies
-- simulating grid interactions
-- learning industrial automation systems
-- developing EMS algorithms
-- learning digital twin architectures
-- a reusable automation lab
+See [docs/bess_runtime_runbook.md](docs/bess_runtime_runbook.md) for the full operational runbook.
 
----
+## Validation
 
-## 📌 Status
+Current validation includes:
 
-🚧 Active development
+- simulator unit tests with `pytest`
+- live command test from Ignition to simulator
+- observed telemetry updates in PostgreSQL and Ignition
+- OPC UA bridge runtime checks
 
----
+Example confirmed command response:
 
-## 📈 Future Plans
+```text
+COMMAND RECEIVED: P_set=9.0kW, Mode=CHARGE
+COMMAND EXECUTED: P_set=9.0 kW, Mode=CHARGE
+SITE -> SOC=50.18% | P_set=9.0 kW | P_actual=8.7 kW | I=10.9 A | Mode=2 (CHARGE)
+```
 
-- EMS dispatch and optimisation
-- anomaly detection and AI based analytics.
-- multi-inverter system scaling
-- containerised deployment
+## Documentation
+
+- [Current project status](docs/current_status.md)
+- [Runtime runbook](docs/bess_runtime_runbook.md)
+- [Portfolio case study](docs/portfolio_case_study.md)
+- [Ignition charge command test](docs/evidence/ignition_charge_command_test.md)
+- [Ignition dashboard progress](docs/progress/2026-05-15_ignition_dashboard.md)
+- [Inverter overview progress](docs/progress/2026-05-16_ignition_inverter_overview.md)
+
+## Roadmap
+
+- Add more realistic alarm scenarios and latching behaviour
+- Add inverter and battery detail pages in Ignition
+- Add trend charts for SOC, power, voltage, current, and temperature
+- Convert runtime scripts into systemd services
+- Add EMS dispatch and optimisation logic
+- Containerise selected components where it improves repeatability
+- Add screenshots and architecture diagrams for easier portfolio review
+
+## Security Notes
+
+Local credentials are kept in ignored `.local.env` files. Do not commit database passwords, OPC UA secrets, tokens, or host-specific credentials.
