@@ -33,10 +33,6 @@ The goal is to build a portfolio-quality engineering project that demonstrates s
 
 ## Architecture
 
-The editable draw.io source for this architecture is stored in:
-
-- [docs/architecture/bess_architecture.drawio](docs/architecture/bess_architecture.drawio)
-
 ```text
 Proxmox Host (Dell Precision T7810)
 |
@@ -76,6 +72,10 @@ Proxmox Host (Dell Precision T7810)
     +-- Command writes to opc_bridge.py on VM1
     +-- Ignition -> OPC UA bridge (TCP/4840)
 ```
+
+Editable diagram source:
+
+- [docs/architecture/bess_architecture.drawio](docs/architecture/bess_architecture.drawio)
 
 Runtime deployment:
 
