@@ -33,6 +33,10 @@ The goal is to build a portfolio-quality engineering project that demonstrates s
 
 ## Architecture
 
+The editable draw.io source for this architecture is stored in:
+
+- [docs/architecture/bess_architecture.drawio](docs/architecture/bess_architecture.drawio)
+
 ```text
 Proxmox Host (Dell Precision T7810)
 |
