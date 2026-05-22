@@ -73,10 +73,6 @@ Proxmox Host (Dell Precision T7810)
     +-- Ignition -> OPC UA bridge (TCP/4840)
 ```
 
-Editable diagram source:
-
-- [docs/architecture/bess_architecture.drawio](docs/architecture/bess_architecture.drawio)
-
 Runtime deployment:
 
 - Simulation VM: Python simulator and OPC UA bridge
