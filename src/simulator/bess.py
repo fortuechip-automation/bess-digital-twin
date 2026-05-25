@@ -206,6 +206,20 @@ def log_alarm(cur, alarm_code, severity_name, message, value=None, threshold=Non
     print(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️  ALARM [{severity_name}] → {alarm_code}: {message}")
     return alarm_id
 
+def log_event(cur, event_code, message, value=None, threshold=None):
+    """Record a non-alarm event without making it appear active in SCADA."""
+    severity_level = SEVERITY["INFO"]
+    sql = """
+        INSERT INTO bess_alarms
+        (ts, alarm_code, severity, message, value, threshold, cleared, cleared_ts)
+        VALUES (NOW(), %s, %s, %s, %s, %s, TRUE, NOW())
+        RETURNING alarm_id;
+    """
+    cur.execute(sql, (event_code, severity_level, message, value, threshold))
+    event_id = cur.fetchone()[0]
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] EVENT → {event_code}: {message}")
+    return event_id
+
 def clear_alarm(cur, alarm_code):
     sql = """
         UPDATE bess_alarms
@@ -213,7 +227,23 @@ def clear_alarm(cur, alarm_code):
         WHERE alarm_code = %s AND cleared = FALSE;
     """
     cur.execute(sql, (alarm_code,))
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] ✓ ALARM CLEARED → {alarm_code}")
+    cleared_count = cur.rowcount
+    if cleared_count:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] ✓ ALARM CLEARED → {alarm_code}")
+    return cleared_count
+
+def load_active_alarms(cur):
+    sql = """
+        SELECT DISTINCT alarm_code
+        FROM bess_alarms
+        WHERE cleared = FALSE
+          AND severity > %s;
+    """
+    cur.execute(sql, (SEVERITY["INFO"],))
+    active_alarms.clear()
+    active_alarms.update(row[0] for row in cur.fetchall())
+    if active_alarms:
+        print(f"[INIT] Loaded active alarms from DB: {', '.join(sorted(active_alarms))}")
 
 def check_and_log_alarm(cur, alarm_code, condition, severity_name, message, value=None, threshold=None):
     if condition:
@@ -222,9 +252,8 @@ def check_and_log_alarm(cur, alarm_code, condition, severity_name, message, valu
             active_alarms.add(alarm_code)
         return True
     else:
-        if alarm_code in active_alarms:
-            clear_alarm(cur, alarm_code)
-            active_alarms.remove(alarm_code)
+        clear_alarm(cur, alarm_code)
+        active_alarms.discard(alarm_code)
         return False
 
 # =========================================================
@@ -348,8 +377,8 @@ def read_latest_command(cur) -> bool:
     else:
         op_mode_id = mode_from_setpoint(p_set_kw)
 
-    log_alarm(
-        cur, "COMMAND_RECEIVED", "INFO",
+    log_event(
+        cur, "COMMAND_RECEIVED",
         f"Command ID {cmd_id}: P_set={p_set_kw:.1f}kW, Mode={mode_str_u or 'AUTO'}",
         p_set_kw, None
     )
@@ -453,7 +482,10 @@ def main():
 
     try:
         init_alarm_table(cur)
-        log_alarm(cur, "SYSTEM_START", "INFO", "BESS fleet simulation started", r2(sum(battery_soc)/N_BATTERIES), None)
+        load_active_alarms(cur)
+        log_event(cur, "SYSTEM_START", "BESS fleet simulation started", r2(fleet.average_soc), None)
+        if clear_alarm(cur, "SYSTEM_FAULT"):
+            active_alarms.discard("SYSTEM_FAULT")
         conn.commit()
 
         while True:
@@ -494,7 +526,7 @@ def main():
     except KeyboardInterrupt:
         print("\n[SHUTDOWN] Simulation stopped by user")
         try:
-            log_alarm(cur, "SYSTEM_STOP", "INFO", "BESS fleet simulation stopped by user", None, None)
+            log_event(cur, "SYSTEM_STOP", "BESS fleet simulation stopped by user", None, None)
             conn.commit()
         except Exception:
             pass
