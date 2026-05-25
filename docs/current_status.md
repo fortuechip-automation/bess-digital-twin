@@ -49,6 +49,21 @@ Example simulator output:
     COMMAND EXECUTED: P_set=9.0 kW, Mode=CHARGE
     SITE → SOC=50.18% | P_set=9.0 kW | P_actual=8.7 kW | I=10.9 A | Mode=2 (CHARGE)
 
+## Latest Dashboard Evidence
+
+The current Ignition dashboard evidence shows the live control loop in a later charge-command state:
+
+![Ignition dashboard 16 kW charge response](assets/screenshots/evidence/ignition-dashboard-16kw-charge-response.jpg)
+
+Observed values from the screenshot:
+
+- `SOC`: 50.24%
+- `Mode`: CHARGING
+- `P_set`: 16 kW
+- `P_actual`: 15.52 kW
+- `Command status`: SENT
+- `Active alarms`: 0
+
 ## Current System Components
 
 | Component | Status |
@@ -65,9 +80,8 @@ Example simulator output:
 
 ## Next Improvements
 
-- Save screenshots of Ignition dashboard
-- Save sample terminal logs as evidence
-- Improve dashboard layout and visual consistency
+- Add SOC and power trend charts for longer-duration behaviour evidence
+- Add voltage, current, and temperature diagnostic trends
 - Clean command handling so setpoint and mode changes create one clean command
 - Add more alarm scenarios
 - Add inverter and battery detail pages

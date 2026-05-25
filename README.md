@@ -96,6 +96,8 @@ Runtime deployment:
 
 ![Successful 11 kW discharge command](docs/assets/screenshots/portfolio/discharge-command-success-11kw.png)
 
+![Ignition dashboard 16 kW charge response](docs/assets/screenshots/evidence/ignition-dashboard-16kw-charge-response.jpg)
+
 ### Simulator Runtime Log
 
 ![Simulator command execution log](docs/assets/screenshots/evidence/simulator-command-execution-log.png)

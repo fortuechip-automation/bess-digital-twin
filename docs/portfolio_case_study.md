@@ -82,6 +82,19 @@ A confirmed Ignition charge-command test changed the simulator state through the
 - Actual power followed the setpoint
 - Ignition dashboard displayed the updated live state
 
+Dashboard evidence:
+
+![Ignition dashboard 16 kW charge response](assets/screenshots/evidence/ignition-dashboard-16kw-charge-response.jpg)
+
+The screenshot captures:
+
+- `SOC`: 50.24%
+- `Mode`: CHARGING
+- `P_set`: 16 kW
+- `P_actual`: 15.52 kW
+- `Command status`: SENT
+- `Active alarms`: 0
+
 See [current_status.md](current_status.md) and [evidence/ignition_charge_command_test.md](evidence/ignition_charge_command_test.md).
 
 ## Technical Decisions
@@ -111,7 +124,6 @@ Separating simulation, database, and SCADA into different VMs makes the lab clos
 
 ## Next Work
 
-- Add screenshots of the Ignition dashboard and command test
 - Add alarm severity, latching, acknowledgement, and clear-condition logic
 - Add richer inverter and battery detail views
 - Add trend pages for SOC, power, voltage, current, and temperature
