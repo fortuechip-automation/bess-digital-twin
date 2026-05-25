@@ -80,6 +80,26 @@ Runtime deployment:
 - Ignition VM: SCADA dashboards, tags, and operator controls
 - Proxmox host: isolated lab infrastructure
 
+## Screenshots
+
+### Ignition SCADA Dashboard
+
+![Styled BESS dashboard layout](docs/assets/screenshots/portfolio/styled-bess-dashboard-layout.png)
+
+### Site Control Panel
+
+![Ignition site control panel](docs/assets/screenshots/portfolio/main-page-site-control-ready.png)
+
+### Command Response Evidence
+
+![Successful 6 kW charge command](docs/assets/screenshots/portfolio/send-command-success-6kw.png)
+
+![Successful 11 kW discharge command](docs/assets/screenshots/portfolio/discharge-command-success-11kw.png)
+
+### Simulator Runtime Log
+
+![Simulator command execution log](docs/assets/screenshots/evidence/simulator-command-execution-log.png)
+
 ## Features
 
 - Site-level BESS simulation with SOC, voltage, current, power, temperature, and operating mode
@@ -167,7 +187,6 @@ SITE -> SOC=50.18% | P_set=9.0 kW | P_actual=8.7 kW | I=10.9 A | Mode=2 (CHARGE)
 - Convert runtime scripts into systemd services
 - Add EMS dispatch and optimisation logic
 - Containerise selected components where it improves repeatability
-- Add screenshots and architecture diagrams for easier portfolio review
 
 ## Security Notes
 
