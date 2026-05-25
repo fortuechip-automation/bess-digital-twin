@@ -5,6 +5,7 @@ from src.simulator.bess import (
     clear_alarm,
     log_event,
 )
+from src.simulator.fleet import BESSFleet
 
 
 class FakeCursor:
@@ -61,3 +62,54 @@ def test_clear_alarm_returns_number_of_rows_cleared():
     sql, params = cur.executed[0]
     assert "SET cleared = TRUE" in sql
     assert params == ("SYSTEM_FAULT",)
+
+
+def test_fleet_dispatch_is_non_uniform_but_tracks_setpoint():
+    fleet = BESSFleet(n_inverters=10, n_batteries=20)
+
+    inv_rows, bat_rows, site = fleet.step(100.0)
+
+    inv_setpoints = [row[2] for row in inv_rows]
+    battery_powers = [row[4] for row in bat_rows]
+
+    assert len(set(inv_setpoints)) > 1
+    assert len(set(battery_powers)) > 1
+    assert abs(sum(inv_setpoints) - 100.0) <= 0.2
+    assert abs(site[3] - sum(row[3] for row in inv_rows)) <= 0.2
+
+
+def test_faulted_inverter_is_excluded_from_dispatch():
+    fleet = BESSFleet(n_inverters=10, n_batteries=20)
+    fleet.inverters[0].fault = True
+
+    inv_rows, _bat_rows, _site = fleet.step(100.0)
+
+    assert inv_rows[0][2] == 0.0
+    assert inv_rows[0][3] == 0.0
+    assert abs(sum(row[2] for row in inv_rows) - 100.0) <= 0.2
+
+
+def test_faulted_battery_excludes_parent_inverter_from_dispatch():
+    fleet = BESSFleet(n_inverters=10, n_batteries=20)
+    fleet.batteries[0].fault = True
+
+    inv_rows, bat_rows, _site = fleet.step(100.0)
+
+    assert inv_rows[0][2] == 0.0
+    assert inv_rows[0][3] == 0.0
+    assert bat_rows[0][4] == 0.0
+    assert bat_rows[1][4] == 0.0
+    assert abs(sum(row[2] for row in inv_rows) - 100.0) <= 0.2
+
+
+def test_battery_soc_headroom_changes_pair_split():
+    fleet = BESSFleet(n_inverters=10, n_batteries=20)
+    fleet.batteries[0].soc = 94.9
+    fleet.batteries[1].soc = 50.0
+
+    _inv_rows, bat_rows, _site = fleet.step(40.0)
+
+    bat1 = next(row for row in bat_rows if row[0] == 1)
+    bat2 = next(row for row in bat_rows if row[0] == 2)
+
+    assert bat1[4] < bat2[4]

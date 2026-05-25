@@ -45,6 +45,80 @@ def map_mode_id_to_text(mode_id: int) -> str:
     return "UNKNOWN"
 
 
+@dataclass(frozen=True)
+class BatteryProfile:
+    battery_id: int
+    capacity_kwh: float
+    max_charge_kw: float
+    max_discharge_kw: float
+    soc_min: float
+    soc_max: float
+    soh_percent: float
+    voltage_offset_v: float
+    temp_offset_c: float
+    thermal_gain: float
+    sensor_noise: float
+    dispatch_weight: float
+    available: bool = True
+
+
+@dataclass(frozen=True)
+class InverterProfile:
+    inverter_id: int
+    rated_kw: float
+    max_charge_kw: float
+    max_discharge_kw: float
+    efficiency: float
+    # Reserved for the next transient-response phase.
+    ramp_rate_kw_per_sec: float
+    response_lag: float
+    temp_offset_c: float
+    derate_start_c: float
+    derate_stop_c: float
+    dispatch_weight: float
+    available: bool = True
+
+
+def default_battery_profile(battery_id: int, base_capacity_kwh: float) -> BatteryProfile:
+    """Create stable per-battery variation without external config."""
+    pattern = ((battery_id * 37) % 11) - 5
+    fine_pattern = ((battery_id * 19) % 7) - 3
+    return BatteryProfile(
+        battery_id=battery_id,
+        capacity_kwh=base_capacity_kwh * (1.0 + pattern * 0.006),
+        max_charge_kw=BAT_MAX_KW * (0.90 + ((battery_id * 5) % 9) * 0.015),
+        max_discharge_kw=BAT_MAX_KW * (0.92 + ((battery_id * 7) % 8) * 0.012),
+        soc_min=5.0 + (battery_id % 3) * 0.5,
+        soc_max=95.0 - (battery_id % 4) * 0.4,
+        soh_percent=96.0 + ((battery_id * 13) % 5),
+        voltage_offset_v=pattern * 0.8,
+        temp_offset_c=fine_pattern * 0.35,
+        thermal_gain=4.2 + ((battery_id * 3) % 6) * 0.35,
+        sensor_noise=0.35 + (battery_id % 4) * 0.08,
+        dispatch_weight=0.92 + ((battery_id * 11) % 9) * 0.02,
+        available=True,
+    )
+
+
+def default_inverter_profile(inverter_id: int) -> InverterProfile:
+    """Create stable per-inverter variation without external config."""
+    pattern = ((inverter_id * 29) % 9) - 4
+    return InverterProfile(
+        inverter_id=inverter_id,
+        rated_kw=INV_MAX_KW * (0.95 + ((inverter_id * 3) % 6) * 0.015),
+        max_charge_kw=INV_MAX_KW * (0.90 + ((inverter_id * 5) % 8) * 0.018),
+        max_discharge_kw=INV_MAX_KW * (0.91 + ((inverter_id * 7) % 7) * 0.016),
+        efficiency=clamp(INV_EFF + pattern * 0.002, 0.955, 0.98),
+        ramp_rate_kw_per_sec=35.0 + (inverter_id % 5) * 5.0,
+        response_lag=0.08 + (inverter_id % 4) * 0.03,
+        temp_offset_c=pattern * 0.45,
+        derate_start_c=36.0 + (inverter_id % 3),
+        derate_stop_c=46.0 + (inverter_id % 4),
+        dispatch_weight=0.90 + ((inverter_id * 13) % 10) * 0.025,
+        available=True,
+    )
+
+
 @dataclass
 class BatteryTelemetry:
     battery_id: int

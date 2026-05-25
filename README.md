@@ -102,6 +102,16 @@ Runtime deployment:
 
 ![Simulator command execution log](docs/assets/screenshots/evidence/simulator-command-execution-log.png)
 
+### Ignition Tag Provider Validation
+
+![Ignition tag provider validation for battery telemetry](docs/assets/screenshots/development/battery-tags-bat02-telemetry.png)
+
+*Ignition tag provider validation for battery telemetry.*
+
+![Ignition tag provider validation for inverter telemetry](docs/assets/screenshots/development/inverter-tags-inv01-telemetry.png)
+
+*Ignition tag provider validation for inverter telemetry.*
+
 ## Features
 
 - Site-level BESS simulation with SOC, voltage, current, power, temperature, and operating mode

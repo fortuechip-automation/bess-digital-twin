@@ -11,6 +11,8 @@ try:
         TELEMETRY_INTERVAL,
         SiteTelemetry,
         clamp,
+        default_battery_profile,
+        default_inverter_profile,
         mode_from_power,
         r2,
     )
@@ -27,9 +29,50 @@ except ImportError:
         TELEMETRY_INTERVAL,
         SiteTelemetry,
         clamp,
+        default_battery_profile,
+        default_inverter_profile,
         mode_from_power,
         r2,
     )
+
+
+def allocate_signed_power(requested_kw: float, assets) -> dict:
+    if not assets or abs(requested_kw) < 1e-9:
+        return {asset["id"]: 0.0 for asset in assets}
+
+    direction = 1.0 if requested_kw > 0 else -1.0
+    remaining_kw = abs(requested_kw)
+    allocations = {asset["id"]: 0.0 for asset in assets}
+    open_assets = list(assets)
+
+    while open_assets and remaining_kw > 1e-6:
+        total_weight = sum(max(asset["weight"], 0.0) for asset in open_assets)
+        if total_weight <= 0.0:
+            break
+
+        next_open = []
+        allocated_this_round = 0.0
+
+        for asset in open_assets:
+            asset_id = asset["id"]
+            headroom_kw = max(asset["capacity_kw"] - allocations[asset_id], 0.0)
+            if headroom_kw <= 1e-6:
+                continue
+
+            share_kw = remaining_kw * (max(asset["weight"], 0.0) / total_weight)
+            added_kw = min(share_kw, headroom_kw)
+            allocations[asset_id] += added_kw
+            allocated_this_round += added_kw
+
+            if headroom_kw - added_kw > 1e-6:
+                next_open.append(asset)
+
+        if allocated_this_round <= 1e-6:
+            break
+        remaining_kw -= allocated_this_round
+        open_assets = next_open
+
+    return {asset_id: r2(direction * value) for asset_id, value in allocations.items()}
 
 
 class BESSFleet:
@@ -40,14 +83,29 @@ class BESSFleet:
         self.n_inverters = n_inverters
         self.n_batteries = n_batteries
         per_bat_capacity_kwh = SITE_CAPACITY_KWH / n_batteries
-        self.batteries = [
-            BatteryUnit(battery_id=i + 1, capacity_kwh=per_bat_capacity_kwh)
-            for i in range(n_batteries)
-        ]
-        self.inverters = [
-            Inverter(inverter_id=i + 1, batteries=self.batteries[2 * i : 2 * i + 2])
-            for i in range(n_inverters)
-        ]
+        self.batteries = []
+        for i in range(n_batteries):
+            battery_id = i + 1
+            profile = default_battery_profile(battery_id, per_bat_capacity_kwh)
+            self.batteries.append(
+                BatteryUnit(
+                    battery_id=battery_id,
+                    capacity_kwh=per_bat_capacity_kwh,
+                    profile=profile,
+                )
+            )
+
+        self.inverters = []
+        for i in range(n_inverters):
+            inverter_id = i + 1
+            profile = default_inverter_profile(inverter_id)
+            self.inverters.append(
+                Inverter(
+                    inverter_id=inverter_id,
+                    batteries=self.batteries[2 * i : 2 * i + 2],
+                    profile=profile,
+                )
+            )
 
     @property
     def average_soc(self) -> float:
@@ -60,8 +118,8 @@ class BESSFleet:
             SITE_MAX_CHARGE_KW,
         )
 
-        per_inv_set = site_p_set_limited / self.n_inverters if self.n_inverters else 0.0
         dt_hours = TELEMETRY_INTERVAL / 3600.0
+        inverter_dispatch = self._dispatch_inverters(site_p_set_limited)
 
         inv_rows = []
         bat_rows = []
@@ -70,11 +128,11 @@ class BESSFleet:
         temp_site_list = []
 
         for inverter in self.inverters:
-            inv_set_kw = 0.0 if inverter.fault else per_inv_set
-            per_bat_dc_kw = clamp(inv_set_kw / 2.0, -BAT_MAX_KW, BAT_MAX_KW)
+            inv_set_kw = inverter_dispatch.get(inverter.inverter_id, 0.0)
+            battery_dc_setpoints = self._dispatch_batteries(inverter, inv_set_kw)
             inv_telemetry, battery_telemetry, p_ac_inv = inverter.step(
                 p_set_kw=inv_set_kw,
-                per_bat_dc_kw=per_bat_dc_kw,
+                battery_dc_setpoints_kw=battery_dc_setpoints,
                 dt_hours=dt_hours,
             )
 
@@ -102,3 +160,42 @@ class BESSFleet:
         )
 
         return inv_rows, bat_rows, site.as_db_row()
+
+    def _dispatch_inverters(self, site_p_set_limited: float) -> dict[int, float]:
+        assets = []
+        charging = site_p_set_limited >= 0
+        for inverter in self.inverters:
+            capacity_kw = inverter.charge_capacity_kw() if charging else inverter.discharge_capacity_kw()
+            if capacity_kw <= 0.0:
+                continue
+            assets.append(
+                {
+                    "id": inverter.inverter_id,
+                    "capacity_kw": capacity_kw,
+                    "weight": capacity_kw * inverter.profile.dispatch_weight,
+                }
+            )
+
+        allocations = allocate_signed_power(site_p_set_limited, assets)
+        return {inverter.inverter_id: allocations.get(inverter.inverter_id, 0.0) for inverter in self.inverters}
+
+    def _dispatch_batteries(self, inverter, inv_set_kw: float) -> list[float]:
+        requested_dc_kw = inverter.ac_to_dc_kw(inv_set_kw)
+        charging = requested_dc_kw >= 0
+        assets = []
+
+        for battery in inverter.batteries:
+            capacity_kw = battery.charge_capacity_kw() if charging else battery.discharge_capacity_kw()
+            capacity_kw = min(capacity_kw, BAT_MAX_KW)
+            if capacity_kw <= 0.0:
+                continue
+            assets.append(
+                {
+                    "id": battery.battery_id,
+                    "capacity_kw": capacity_kw,
+                    "weight": capacity_kw * battery.profile.dispatch_weight,
+                }
+            )
+
+        allocations = allocate_signed_power(requested_dc_kw, assets)
+        return [allocations.get(battery.battery_id, 0.0) for battery in inverter.batteries]
