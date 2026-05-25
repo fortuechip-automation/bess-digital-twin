@@ -97,6 +97,16 @@ The screenshot captures:
 
 See [current_status.md](current_status.md) and [evidence/ignition_charge_command_test.md](evidence/ignition_charge_command_test.md).
 
+Ignition tag provider validation:
+
+![Ignition tag provider validation for battery telemetry](assets/screenshots/development/battery-tags-bat02-telemetry.png)
+
+*Ignition tag provider validation for battery telemetry.*
+
+![Ignition tag provider validation for inverter telemetry](assets/screenshots/development/inverter-tags-inv01-telemetry.png)
+
+*Ignition tag provider validation for inverter telemetry.*
+
 ## Technical Decisions
 
 ### PostgreSQL as the integration point
