@@ -12,6 +12,7 @@ The core simulator -> database -> OPC UA -> Ignition loop is working.
 - PostgreSQL stores site status, equipment telemetry, alarms, and commands.
 - OPC UA bridge publishes live values from PostgreSQL for SCADA consumption.
 - Ignition Perspective displays live BESS values and sends charge/discharge commands.
+- Trend-chart design is documented for SOC, power, voltage, current, and temperature.
 - Runtime helper scripts start, stop, and check the simulator and OPC bridge.
 - Local environment files keep credentials out of git.
 
@@ -188,6 +189,7 @@ SITE -> SOC=50.18% | P_set=9.0 kW | P_actual=8.7 kW | I=10.9 A | Mode=2 (CHARGE)
 - [Runtime runbook](docs/bess_runtime_runbook.md)
 - [Portfolio case study](docs/portfolio_case_study.md)
 - [Ignition charge command test](docs/evidence/ignition_charge_command_test.md)
+- [Ignition trend chart plan](docs/progress/2026-05-27_ignition_trend_charts.md)
 - [Ignition dashboard progress](docs/progress/2026-05-15_ignition_dashboard.md)
 - [Inverter overview progress](docs/progress/2026-05-16_ignition_inverter_overview.md)
 
@@ -195,7 +197,7 @@ SITE -> SOC=50.18% | P_set=9.0 kW | P_actual=8.7 kW | I=10.9 A | Mode=2 (CHARGE)
 
 - Add more realistic alarm scenarios and latching behaviour
 - Add inverter and battery detail pages in Ignition
-- Add trend charts for SOC, power, voltage, current, and temperature
+- Build the documented Ignition trend charts and capture evidence
 - Convert runtime scripts into systemd services
 - Add EMS dispatch and optimisation logic
 - Containerise selected components where it improves repeatability

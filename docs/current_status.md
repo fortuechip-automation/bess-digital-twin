@@ -12,6 +12,7 @@ The BESS digital twin currently supports a working simulator → PostgreSQL → 
 - Ignition SCADA dashboard displays live BESS values
 - Ignition can send setpoint and mode commands back to the simulator
 - Simulator receives the commands and updates site mode, actual power, current, voltage, temperature, and SOC
+- Site-level trend chart design is documented for SOC, power, voltage, current, and temperature
 
 ## Confirmed Data Flow
 
@@ -64,6 +65,17 @@ Observed values from the screenshot:
 - `Command status`: SENT
 - `Active alarms`: 0
 
+## Trend Chart Plan
+
+The first-pass Ignition trend-chart design is documented in [progress/2026-05-27_ignition_trend_charts.md](progress/2026-05-27_ignition_trend_charts.md).
+
+The recommended implementation uses two operator-facing charts:
+
+- Site power trend: `SOC`, `P_set_kW`, and `P_actual_kW`
+- Electrical diagnostics trend: `Vdc`, `Idc`, and `Temp_C`
+
+The reliable historical source is PostgreSQL `site_status`, which already stores one site-level row per simulator cycle.
+
 ## Current System Components
 
 | Component | Status |
@@ -72,6 +84,7 @@ Observed values from the screenshot:
 | PostgreSQL database | Working |
 | OPC UA bridge | Working |
 | Ignition SCADA dashboard | Working |
+| Ignition trend chart design | Ready to build |
 | Ignition command path | Working |
 | Alarm table | Working |
 | Secrets management via local env files | Working |
@@ -80,8 +93,7 @@ Observed values from the screenshot:
 
 ## Next Improvements
 
-- Add SOC and power trend charts for longer-duration behaviour evidence
-- Add voltage, current, and temperature diagnostic trends
+- Build the documented Ignition trend charts and capture screenshot evidence
 - Clean command handling so setpoint and mode changes create one clean command
 - Add more alarm scenarios
 - Add inverter and battery detail pages
