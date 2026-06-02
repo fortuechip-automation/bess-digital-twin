@@ -123,6 +123,26 @@ def mode_from_setpoint(p_kw: float) -> int:
         return MODE_IDLE
     return MODE_CHARGE if p_kw > 0 else MODE_DISCHARGE
 
+def command_to_effective_power(command_p_kw: float, mode_set: str):
+    """
+    Convert operator command mode + unsigned magnitude into signed site power.
+
+    The command table may contain legacy signed commands, so unknown/blank mode
+    falls back to the old sign-based interpretation.
+    """
+    p_mag_kw = abs(float(command_p_kw))
+    mode_str_u = (mode_set or "").upper()
+
+    if mode_str_u == "IDLE":
+        return 0.0, MODE_IDLE, "IDLE"
+    if mode_str_u == "CHARGE":
+        return p_mag_kw, MODE_CHARGE, "CHARGE"
+    if mode_str_u == "DISCHARGE":
+        return -p_mag_kw, MODE_DISCHARGE, "DISCHARGE"
+
+    p_eff_kw = float(command_p_kw)
+    return p_eff_kw, mode_from_setpoint(p_eff_kw), mode_str_u or "AUTO"
+
 def clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
@@ -331,11 +351,11 @@ def check_all_alarms(cur, soc, temp_c, v_dc_bus, current_a, p_set_kw_in, p_actua
         "WARNING", f"Discharging attempted at {soc:.1f}% SOC", soc, 5.0
     )
 
-    # POWER_LIMITED (instant, informational)
+    # POWER_LIMITED (instant, informational). Ignore zero-effective commands.
     power_diff = abs(p_set_kw_in - p_actual_kw_in)
     check_and_log_alarm(
         cur, "POWER_LIMITED",
-        power_diff > 1.0,
+        abs(p_set_kw_in) >= 0.5 and power_diff > 1.0,
         "INFO", f"Power limited: Set={p_set_kw_in:.1f}kW, Actual={p_actual_kw_in:.1f}kW", power_diff, 1.0
     )
 
@@ -365,28 +385,22 @@ def read_latest_command(cur) -> bool:
     if cmd_id <= last_processed_command_id:
         return False
 
-    p_set_kw = float(latest_p)
-    mode_str_u = (mode_str or "").upper()
-
-    if mode_str_u == "DISCHARGE":
-        op_mode_id = MODE_DISCHARGE
-    elif mode_str_u == "CHARGE":
-        op_mode_id = MODE_CHARGE
-    elif mode_str_u == "IDLE":
-        op_mode_id = MODE_IDLE
-    else:
-        op_mode_id = mode_from_setpoint(p_set_kw)
+    command_p_kw = float(latest_p)
+    p_set_kw, op_mode_id, mode_str_u = command_to_effective_power(command_p_kw, mode_str)
 
     log_event(
         cur, "COMMAND_RECEIVED",
-        f"Command ID {cmd_id}: P_set={p_set_kw:.1f}kW, Mode={mode_str_u or 'AUTO'}",
+        f"Command ID {cmd_id}: P_mag={abs(command_p_kw):.1f}kW, Mode={mode_str_u}, P_eff={p_set_kw:.1f}kW",
         p_set_kw, None
     )
 
     cur.execute("UPDATE bess_commands SET processed = TRUE WHERE command_id = %s;", (cmd_id,))
     last_processed_command_id = cmd_id
 
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] COMMAND EXECUTED → ID {cmd_id}, P_set={p_set_kw:.1f} kW, Mode={mode_str_u or 'AUTO'}")
+    print(
+        f"[{datetime.now().strftime('%H:%M:%S')}] COMMAND EXECUTED → ID {cmd_id}, "
+        f"P_mag={abs(command_p_kw):.1f} kW, Mode={mode_str_u}, P_eff={p_set_kw:.1f} kW"
+    )
     return True
 
 # =========================================================
@@ -447,6 +461,20 @@ def insert_site(cur, site_tuple, active_alarm_count: int):
 # =========================================================
 def update_site_shortfall_alarm(cur, p_set_site: float, p_actual_site: float):
     global site_shortfall_counter
+
+    if abs(p_set_site) < 0.5:
+        site_shortfall_counter = 0
+        check_and_log_alarm(
+            cur,
+            "SITE_POWER_SHORTFALL",
+            False,
+            "FAULT",
+            f"Site cannot meet setpoint for {ALARM_THRESHOLDS['site_shortfall_secs']}s. "
+            f"Set={p_set_site:.1f}kW Actual={p_actual_site:.1f}kW",
+            0.0,
+            ALARM_THRESHOLDS["site_shortfall_kw"],
+        )
+        return
 
     diff = abs(p_set_site - p_actual_site)
     if diff > ALARM_THRESHOLDS["site_shortfall_kw"]:

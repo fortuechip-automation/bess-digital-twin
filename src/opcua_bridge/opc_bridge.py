@@ -13,7 +13,7 @@ Reads telemetry from Postgres tables:
   - battery_status (latest row per battery_id)
 
 Writes commands to:
-  - bess_commands (when OPC Site/P_set_kW or Site/Mode changes)
+  - bess_commands (when OPC Site/ApplyCommand is pulsed)
 
 Stability + performance:
   - Only writes OPC nodes when value changes (deadband)
@@ -75,6 +75,8 @@ P_DEADBAND = 0.1
 V_DEADBAND = 0.1
 I_DEADBAND = 0.1
 T_DEADBAND = 0.05
+COMMAND_DEADBAND_KW = 0.1
+SITE_MAX_COMMAND_KW = 250.0
 
 # =========================
 #  DATABASE HELPERS
@@ -212,6 +214,30 @@ def map_p_set_to_mode_text(p_set_kw: float) -> str:
         return "IDLE"
 
 
+def build_command(mode_id: int, p_set_kw: float):
+    """
+    Build an operator command from staged OPC inputs.
+
+    The HMI setpoint is an unsigned magnitude. Mode determines direction.
+    IDLE always commands 0 kW, even if the staged magnitude is non-zero.
+    """
+    mode_text = map_mode_id_to_text(mode_id)
+    if mode_text == "UNKNOWN":
+        return None, None, f"unsupported mode {mode_id}"
+
+    p_mag_kw = abs(float(p_set_kw))
+    if p_mag_kw > SITE_MAX_COMMAND_KW:
+        return None, None, f"setpoint {p_mag_kw:.1f} kW exceeds {SITE_MAX_COMMAND_KW:.1f} kW limit"
+
+    if mode_text == "IDLE":
+        return 0.0, mode_text, None
+
+    if p_mag_kw <= COMMAND_DEADBAND_KW:
+        return None, None, f"{mode_text} requires setpoint above {COMMAND_DEADBAND_KW:.1f} kW"
+
+    return p_mag_kw, mode_text, None
+
+
 # =========================
 #  OPC HELPERS
 # =========================
@@ -280,11 +306,14 @@ def main():
     site_p_actual_node   = site_obj.add_variable(idx, "P_actual_kW",  0.0)
     site_temp_node       = site_obj.add_variable(idx, "Temp_C",       25.0)
     site_mode_node       = site_obj.add_variable(idx, "Mode",         1)
+    site_actual_mode_node = site_obj.add_variable(idx, "ActualMode",  1)
+    site_apply_node      = site_obj.add_variable(idx, "ApplyCommand", False)
     site_alarms_node     = site_obj.add_variable(idx, "ActiveAlarms", 0)
 
     # Writable command nodes
     site_p_set_node.set_writable()
     site_mode_node.set_writable()
+    site_apply_node.set_writable()
 
     # --- Inverters ---
     inv_nodes = {}  # inverter_id -> dict of nodes
@@ -324,9 +353,9 @@ def main():
     # DB connection
     conn = connect_db()
 
-    # Command change tracking (avoid spamming commands)
-    last_cmd_p_set = None
-    last_cmd_mode = None
+    # Command apply tracking. Mode/P_set are staged until ApplyCommand is pulsed.
+    last_apply_value = False
+    command_nodes_initialized = False
 
     try:
         while True:
@@ -361,12 +390,16 @@ def main():
                 set_if_changed(site_idc_node, idc, "site/idc", deadband=I_DEADBAND, vtype=ua.VariantType.Float)
                 set_if_changed(site_p_actual_node, p_actual, "site/p_actual", deadband=P_DEADBAND, vtype=ua.VariantType.Float)
                 set_if_changed(site_temp_node, temp_c, "site/temp", deadband=T_DEADBAND, vtype=ua.VariantType.Float)
-                set_if_changed(site_mode_node, mode, "site/mode", deadband=0.0, vtype=ua.VariantType.Int16)
+                set_if_changed(site_actual_mode_node, mode, "site/actual_mode", deadband=0.0, vtype=ua.VariantType.Int16)
                 set_if_changed(site_alarms_node, alarms, "site/alarms", deadband=0.0, vtype=ua.VariantType.Int32)
 
-                # NOTE: we do NOT overwrite the writable site_p_set_node each second.
-                # If you want DB to mirror into the OPC setpoint too, uncomment:
-                # set_if_changed(site_p_set_node, p_set_db, "site/p_set_db", deadband=P_DEADBAND, vtype=ua.VariantType.Float)
+                if not command_nodes_initialized:
+                    set_if_changed(site_mode_node, mode, "site/cmd_mode", deadband=0.0, vtype=ua.VariantType.Int16)
+                    set_if_changed(site_p_set_node, abs(p_set_db), "site/cmd_p_set", deadband=P_DEADBAND, vtype=ua.VariantType.Float)
+                    command_nodes_initialized = True
+
+                # NOTE: Site/Mode and Site/P_set_kW are staged command inputs.
+                # Live telemetry mode is exposed as Site/ActualMode.
 
                 print(
                     f"[SITE] {ts} SOC={soc:.2f}% P_set(DB)={p_set_db:.1f}kW P_act={p_actual:.1f}kW "
@@ -417,26 +450,27 @@ def main():
                 set_if_changed(nodes["Temp_C"], temp, f"bat/{bat_id}/temp", deadband=T_DEADBAND, vtype=ua.VariantType.Float)
                 set_if_changed(nodes["Fault"], fault, f"bat/{bat_id}/fault", deadband=0.0, vtype=ua.VariantType.Boolean)
 
-            # ===== 3) WATCH OPC COMMANDS AND WRITE TO DB =====
+            # ===== 3) WATCH OPC APPLY AND WRITE ONE COHERENT COMMAND TO DB =====
             try:
                 cmd_p_set = float(site_p_set_node.get_value())
                 cmd_mode = int(site_mode_node.get_value())
+                apply_value = bool(site_apply_node.get_value())
             except Exception:
-                cmd_p_set, cmd_mode = None, None
+                cmd_p_set, cmd_mode, apply_value = None, None, False
 
-            if cmd_p_set is not None and cmd_mode is not None:
-                changed = False
-                if last_cmd_p_set is None or abs(cmd_p_set - last_cmd_p_set) > 0.01:
-                    changed = True
-                if last_cmd_mode is None or cmd_mode != last_cmd_mode:
-                    changed = True
-
-                if changed:
-                    mode_text = map_mode_id_to_text(cmd_mode) if cmd_mode in (1, 2, 3) else map_p_set_to_mode_text(cmd_p_set)
-                    conn, ok = insert_command_safe(conn, cmd_p_set, mode_text)
+            if cmd_p_set is not None and cmd_mode is not None and apply_value and not last_apply_value:
+                command_p_set, mode_text, error = build_command(cmd_mode, cmd_p_set)
+                if error:
+                    print(f"[CMD] Rejected staged command: P_set={cmd_p_set:.1f} kW, Mode={cmd_mode} ({error})")
+                    set_if_changed(site_apply_node, False, "site/apply", deadband=0.0, vtype=ua.VariantType.Boolean)
+                    apply_value = False
+                else:
+                    conn, ok = insert_command_safe(conn, command_p_set, mode_text)
                     if ok:
-                        last_cmd_p_set = cmd_p_set
-                        last_cmd_mode = cmd_mode
+                        set_if_changed(site_apply_node, False, "site/apply", deadband=0.0, vtype=ua.VariantType.Boolean)
+                        apply_value = False
+
+            last_apply_value = apply_value
 
             time.sleep(POLL_SECONDS)
 
