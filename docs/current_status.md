@@ -12,6 +12,7 @@ The BESS digital twin currently supports a working simulator → PostgreSQL → 
 - Ignition SCADA dashboard displays live BESS values
 - Ignition can send setpoint and mode commands back to the simulator
 - Simulator receives the commands and updates site mode, actual power, current, voltage, temperature, and SOC
+- Ignition dashboard command controls have been tested for both charging and discharging
 - Site-level trend chart design is documented for SOC, power, voltage, current, and temperature
 
 ## Confirmed Data Flow
@@ -65,6 +66,15 @@ Observed values from the screenshot:
 - `Command status`: SENT
 - `Active alarms`: 0
 
+Latest command-control testing is summarized in [progress/2026-06-02_ignition_dashboard_command_summary.md](progress/2026-06-02_ignition_dashboard_command_summary.md).
+
+Confirmed behaviour from the dashboard:
+
+- Charging produces positive `P_actual_kW`
+- Discharging produces negative `P_actual_kW`
+- `P_set_kW` remains positive while mode determines the operating direction
+- The Apply button writes the selected mode value and a matching `lastCommand` string
+
 ## Trend Chart Plan
 
 The first-pass Ignition trend-chart design is documented in [progress/2026-05-27_ignition_trend_charts.md](progress/2026-05-27_ignition_trend_charts.md).
@@ -86,6 +96,7 @@ The reliable historical source is PostgreSQL `site_status`, which already stores
 | Ignition SCADA dashboard | Working |
 | Ignition trend chart design | Ready to build |
 | Ignition command path | Working |
+| Ignition charge/discharge controls | Working |
 | Alarm table | Working |
 | Secrets management via local env files | Working |
 | AI assistant | Not started |
@@ -94,6 +105,7 @@ The reliable historical source is PostgreSQL `site_status`, which already stores
 ## Next Improvements
 
 - Build the documented Ignition trend charts and capture screenshot evidence
+- Fix the currently blank trend chart binding/history path
 - Clean command handling so setpoint and mode changes create one clean command
 - Add more alarm scenarios
 - Add inverter and battery detail pages
