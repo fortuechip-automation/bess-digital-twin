@@ -37,7 +37,7 @@ The goal is to build a portfolio-quality engineering project that demonstrates s
 ```text
 Proxmox Host (Dell Precision T7810)
 |
-+-- VM1: BESS Engine (Ubuntu 22.04.5)
++-- VM1 302: BESS Engine (Ubuntu 22.04.5)
 |   |
 |   +-- bess.py
 |   |   +-- Simulates site, inverter, and battery telemetry
@@ -50,7 +50,7 @@ Proxmox Host (Dell Precision T7810)
 |       +-- Exposes OPC UA tags for SCADA
 |       +-- Writes SCADA commands to PostgreSQL
 |
-+-- VM2: Database Server (Ubuntu 22.04.5)
++-- VM2 301: Database Server (Ubuntu 22.04.5)
 |   |
 |   +-- PostgreSQL
 |   +-- TimescaleDB telemetry storage
@@ -66,7 +66,7 @@ Proxmox Host (Dell Precision T7810)
 |       +-- ems_decisions
 |       +-- system_events
 |
-+-- VM3: Ignition SCADA
++-- VM3 303: Ignition SCADA
     |
     +-- Perspective dashboard
     +-- OPC UA telemetry reads from opc_bridge.py on VM1
