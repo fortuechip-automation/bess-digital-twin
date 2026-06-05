@@ -174,6 +174,9 @@ site_shortfall_counter = 0
 # Active alarms (site-level)
 active_alarms = set()
 
+# Active alarm-test injection tracking, used only for INFO event logging.
+active_alarm_test_injection_id = None
+
 # Batteries
 battery_soc = [50.0 + random.uniform(-2, 2) for _ in range(N_BATTERIES)]
 battery_fault = [False for _ in range(N_BATTERIES)]
@@ -221,6 +224,28 @@ def init_alarm_table(cur):
     """
     cur.execute(sql)
     print("[INIT] Alarm table initialized")
+
+
+def init_alarm_test_injection_table(cur):
+    sql = """
+        CREATE TABLE IF NOT EXISTS alarm_test_injections (
+            injection_id SERIAL PRIMARY KEY,
+            created_ts TIMESTAMPTZ DEFAULT NOW(),
+            enabled BOOLEAN DEFAULT TRUE,
+            scenario TEXT NOT NULL,
+            target TEXT DEFAULT 'site',
+            value REAL,
+            duration_seconds INTEGER DEFAULT 60,
+            expires_ts TIMESTAMPTZ,
+            note TEXT,
+            consumed BOOLEAN DEFAULT FALSE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_alarm_test_injections_active
+            ON alarm_test_injections (enabled, consumed, created_ts DESC);
+    """
+    cur.execute(sql)
+    print("[INIT] Alarm test injection table initialized")
 
 # =========================================================
 #  ALARM MANAGEMENT (CENTRALIZED CURSOR)
@@ -320,8 +345,8 @@ def check_all_alarms(cur, soc, temp_c, v_dc_bus, current_a, p_set_kw_in, p_actua
     )
     check_hysteresis_alarm(
         cur, "SOC_LOW", soc,
-        soc <= ALARM_THRESHOLDS["soc_low"] and "SOC_CRITICAL_LOW" not in active_alarms,
-        soc >= ALARM_THRESHOLDS["soc_low_clear"] or "SOC_CRITICAL_LOW" in active_alarms,
+        soc <= ALARM_THRESHOLDS["soc_low"],
+        soc >= ALARM_THRESHOLDS["soc_low_clear"],
         "WARNING", f"Site SOC low: {soc:.1f}%", ALARM_THRESHOLDS["soc_low"]
     )
     check_hysteresis_alarm(
@@ -332,8 +357,8 @@ def check_all_alarms(cur, soc, temp_c, v_dc_bus, current_a, p_set_kw_in, p_actua
     )
     check_hysteresis_alarm(
         cur, "SOC_HIGH", soc,
-        soc >= ALARM_THRESHOLDS["soc_high"] and "SOC_CRITICAL_HIGH" not in active_alarms,
-        soc <= ALARM_THRESHOLDS["soc_high_clear"] or "SOC_CRITICAL_HIGH" in active_alarms,
+        soc >= ALARM_THRESHOLDS["soc_high"],
+        soc <= ALARM_THRESHOLDS["soc_high_clear"],
         "WARNING", f"Site SOC high: {soc:.1f}%", ALARM_THRESHOLDS["soc_high"]
     )
 
@@ -346,8 +371,8 @@ def check_all_alarms(cur, soc, temp_c, v_dc_bus, current_a, p_set_kw_in, p_actua
     )
     check_hysteresis_alarm(
         cur, "TEMP_HIGH", temp_c,
-        temp_c >= ALARM_THRESHOLDS["temp_warning"] and "TEMP_CRITICAL" not in active_alarms,
-        temp_c <= ALARM_THRESHOLDS["temp_warning_clear"] or "TEMP_CRITICAL" in active_alarms,
+        temp_c >= ALARM_THRESHOLDS["temp_warning"],
+        temp_c <= ALARM_THRESHOLDS["temp_warning_clear"],
         "WARNING", f"Site temperature high: {temp_c:.1f}°C", ALARM_THRESHOLDS["temp_warning"]
     )
     clear_alarm(cur, "TEMP_WARNING")
@@ -380,8 +405,8 @@ def check_all_alarms(cur, soc, temp_c, v_dc_bus, current_a, p_set_kw_in, p_actua
     )
     check_hysteresis_alarm(
         cur, "CURRENT_HIGH", abs_current,
-        abs_current >= ALARM_THRESHOLDS["current_warning"] and "CURRENT_CRITICAL" not in active_alarms,
-        abs_current <= ALARM_THRESHOLDS["current_warning_clear"] or "CURRENT_CRITICAL" in active_alarms,
+        abs_current >= ALARM_THRESHOLDS["current_warning"],
+        abs_current <= ALARM_THRESHOLDS["current_warning_clear"],
         "WARNING", f"Site current high: {abs_current:.1f}A", ALARM_THRESHOLDS["current_warning"]
     )
     clear_alarm(cur, "CURRENT_WARNING")
@@ -435,6 +460,109 @@ def read_latest_command(cur) -> bool:
         f"P_mag={abs(command_p_kw):.1f} kW, Mode={mode_str_u}, P_eff={p_set_kw:.1f} kW"
     )
     return True
+
+# =========================================================
+#  LIVE ALARM TEST INJECTIONS
+# =========================================================
+def expire_alarm_test_injections(cur):
+    """Consume expired alarm-test injections and log cleared INFO end events."""
+    global active_alarm_test_injection_id
+
+    cur.execute(
+        """
+        UPDATE alarm_test_injections
+        SET consumed = TRUE, enabled = FALSE
+        WHERE enabled = TRUE
+          AND consumed = FALSE
+          AND COALESCE(expires_ts, created_ts + duration_seconds * INTERVAL '1 second') <= NOW()
+        RETURNING injection_id, scenario, value;
+        """
+    )
+    expired_rows = cur.fetchall()
+    for injection_id, scenario, value in expired_rows:
+        log_event(
+            cur,
+            "ALARM_TEST_INJECTION_ENDED",
+            f"Alarm test injection ended: ID={injection_id}, Scenario={scenario}, Value={value}",
+            value,
+            None,
+        )
+        if active_alarm_test_injection_id == injection_id:
+            active_alarm_test_injection_id = None
+
+
+def read_active_alarm_test_injection(cur):
+    """Return the newest active, unexpired alarm-test injection, or None."""
+    expire_alarm_test_injections(cur)
+    cur.execute(
+        """
+        SELECT
+            injection_id,
+            UPPER(scenario) AS scenario,
+            value,
+            COALESCE(expires_ts, created_ts + duration_seconds * INTERVAL '1 second') AS expires_ts,
+            note
+        FROM alarm_test_injections
+        WHERE enabled = TRUE
+          AND consumed = FALSE
+          AND COALESCE(expires_ts, created_ts + duration_seconds * INTERVAL '1 second') > NOW()
+        ORDER BY created_ts DESC, injection_id DESC
+        LIMIT 1;
+        """
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    injection_id, scenario, value, expires_ts, note = row
+    return {
+        "injection_id": injection_id,
+        "scenario": scenario,
+        "value": float(value) if value is not None else None,
+        "expires_ts": expires_ts,
+        "note": note,
+    }
+
+
+def apply_alarm_test_injection(cur, injection, site_tuple):
+    """Apply a Stage 1 test override to the site tuple used for alarms/telemetry."""
+    global active_alarm_test_injection_id
+
+    soc, mode, p_set, p_actual, vdc, idc, temp_c = site_tuple
+    injection_id = injection["injection_id"]
+    scenario = injection["scenario"]
+    value = injection["value"]
+
+    if active_alarm_test_injection_id != injection_id:
+        log_event(
+            cur,
+            "ALARM_TEST_INJECTION_STARTED",
+            f"Alarm test injection started: ID={injection_id}, Scenario={scenario}, Value={value}",
+            value,
+            None,
+        )
+        print(
+            f"[{datetime.now().strftime('%H:%M:%S')}] [TEST] Applying alarm injection "
+            f"ID={injection_id} Scenario={scenario} Value={value} Expires={injection['expires_ts']}"
+        )
+        active_alarm_test_injection_id = injection_id
+
+    if value is None:
+        return site_tuple
+
+    if scenario == "FORCE_SOC":
+        soc = clamp(value, 0.0, 100.0)
+    elif scenario == "FORCE_TEMP":
+        temp_c = value
+    elif scenario == "FORCE_VDC":
+        vdc = max(0.0, value)
+    elif scenario == "FORCE_IDC":
+        idc = value
+    else:
+        # Unknown scenarios are ignored in Stage 1. They should remain visible in the DB row for review.
+        return site_tuple
+
+    return (r2(soc), mode, p_set, p_actual, r2(vdc), r2(idc), r2(temp_c))
+
 
 # =========================================================
 #  SIMULATION STEP
@@ -501,7 +629,7 @@ def update_site_shortfall_alarm(cur, p_set_site: float, p_actual_site: float):
             cur,
             "SITE_POWER_SHORTFALL",
             False,
-            "CRITICAL",
+            "FAULT",
             f"Site cannot meet setpoint for {ALARM_THRESHOLDS['site_shortfall_secs']}s. "
             f"Set={p_set_site:.1f}kW Actual={p_actual_site:.1f}kW",
             0.0,
@@ -524,7 +652,7 @@ def update_site_shortfall_alarm(cur, p_set_site: float, p_actual_site: float):
         diff,
         trigger_condition,
         clear_condition,
-        "CRITICAL",
+        "FAULT",
         f"Site cannot meet setpoint for {ALARM_THRESHOLDS['site_shortfall_secs']}s. "
         f"Set={p_set_site:.1f}kW Actual={p_actual_site:.1f}kW",
         ALARM_THRESHOLDS["site_shortfall_kw"],
@@ -545,6 +673,7 @@ def main():
 
     try:
         init_alarm_table(cur)
+        init_alarm_test_injection_table(cur)
         load_active_alarms(cur)
         log_event(cur, "SYSTEM_START", "BESS fleet simulation started", r2(fleet.average_soc), None)
         if clear_alarm(cur, "SYSTEM_FAULT"):
@@ -559,6 +688,9 @@ def main():
 
             # Sim step
             inv_rows, bat_rows, site_tuple = simulate_fleet_step(p_set_kw)
+            injection = read_active_alarm_test_injection(cur)
+            if injection:
+                site_tuple = apply_alarm_test_injection(cur, injection, site_tuple)
             soc_site, mode_site, p_set_site, p_actual_site, vdc_site, idc_site, temp_site = site_tuple
 
             # Alarms
