@@ -131,3 +131,16 @@ The trend feature is working when:
 ## Follow-Up
 
 After the first chart is visible, capture a screenshot during a command response and add it to the evidence section of the README.
+
+
+## Implementation Evidence
+
+The first-pass Perspective trend implementation has been built with separate tabs for:
+
+- Power
+- SOC
+- DC Electrical
+
+![Ignition dashboard split trend tabs during discharge](../assets/screenshots/evidence/ignition-dashboard-split-trends-discharge.jpg)
+
+The evidence screenshot shows the DC Electrical tab active during a 15 kW discharge command, with `P_actual` at `-15 kW` and the command status marked `SENT`.

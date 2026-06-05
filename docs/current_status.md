@@ -13,7 +13,7 @@ The BESS digital twin currently supports a working simulator → PostgreSQL → 
 - Ignition can send setpoint and mode commands back to the simulator
 - Simulator receives the commands and updates site mode, actual power, current, voltage, temperature, and SOC
 - Ignition dashboard command controls have been tested for both charging and discharging
-- Site-level trend chart design is documented for SOC, power, voltage, current, and temperature
+- Site-level trend tabs are built for Power, SOC, and DC Electrical telemetry
 
 ## Confirmed Data Flow
 
@@ -75,16 +75,29 @@ Confirmed behaviour from the dashboard:
 - `P_set_kW` remains positive while mode determines the operating direction
 - The Apply button writes the selected mode value and a matching `lastCommand` string
 
-## Trend Chart Plan
+## Trend Chart Evidence
 
-The first-pass Ignition trend-chart design is documented in [progress/2026-05-27_ignition_trend_charts.md](progress/2026-05-27_ignition_trend_charts.md).
+The first-pass Ignition trend implementation is built and documented in [progress/2026-05-27_ignition_trend_charts.md](progress/2026-05-27_ignition_trend_charts.md).
 
-The recommended implementation uses two operator-facing charts:
+The dashboard now separates site history into operator-facing tabs:
 
-- Site power trend: `SOC`, `P_set_kW`, and `P_actual_kW`
-- Electrical diagnostics trend: `Vdc`, `Idc`, and `Temp_C`
+- Power
+- SOC
+- DC Electrical
 
-The reliable historical source is PostgreSQL `site_status`, which already stores one site-level row per simulator cycle.
+![Ignition dashboard split trend tabs during discharge](assets/screenshots/evidence/ignition-dashboard-split-trends-discharge.jpg)
+
+Observed values from the trend evidence screenshot:
+
+- `SOC`: 94.33%
+- `Actual mode`: DISCHARGING
+- `P_set`: 15 kW
+- `P_actual`: -15 kW
+- `Vdc`: approximately 835.44 V
+- `Command status`: SENT
+- `Last command`: DISCHARGE 15.0 kW
+
+The reliable historical source remains PostgreSQL `site_status`, which stores one site-level row per simulator cycle.
 
 ## Current System Components
 
@@ -94,7 +107,7 @@ The reliable historical source is PostgreSQL `site_status`, which already stores
 | PostgreSQL database | Working |
 | OPC UA bridge | Working |
 | Ignition SCADA dashboard | Working |
-| Ignition trend chart design | Ready to build |
+| Ignition split trend tabs | Working |
 | Ignition command path | Working |
 | Ignition charge/discharge controls | Working |
 | Alarm table | Working |
@@ -104,9 +117,6 @@ The reliable historical source is PostgreSQL `site_status`, which already stores
 
 ## Next Improvements
 
-- Build the documented Ignition trend charts and capture screenshot evidence
-- Fix the currently blank trend chart binding/history path
-- Clean command handling so setpoint and mode changes create one clean command
+- Refine trend chart styling, axes, and operator labels
 - Add more alarm scenarios
 - Add inverter and battery detail pages
-- Add trend charts for SOC, power, voltage, and current

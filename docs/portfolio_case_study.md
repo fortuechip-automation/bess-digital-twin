@@ -95,6 +95,12 @@ The screenshot captures:
 - `Command status`: SENT
 - `Active alarms`: 0
 
+Split trend evidence:
+
+![Ignition dashboard split trend tabs during discharge](assets/screenshots/evidence/ignition-dashboard-split-trends-discharge.jpg)
+
+This capture shows the separated Power, SOC, and DC Electrical trend tabs during a 15 kW discharge command.
+
 See [current_status.md](current_status.md) and [evidence/ignition_charge_command_test.md](evidence/ignition_charge_command_test.md).
 
 Ignition tag provider validation:
@@ -136,6 +142,6 @@ Separating simulation, database, and SCADA into different VMs makes the lab clos
 
 - Add alarm severity, latching, acknowledgement, and clear-condition logic
 - Add richer inverter and battery detail views
-- Add trend pages for SOC, power, voltage, current, and temperature
+- Refine trend chart styling, axes, and operator labels
 - Convert runtime scripts into managed systemd services
 - Add EMS dispatch logic and optimisation experiments
