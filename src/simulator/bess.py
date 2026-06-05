@@ -88,21 +88,32 @@ INV_EFF = 0.97
 # =========================================================
 ALARM_THRESHOLDS = {
     "soc_critical_low": 5.0,
+    "soc_critical_low_clear": 7.0,
     "soc_low": 10.0,
+    "soc_low_clear": 12.0,
     "soc_high": 90.0,
+    "soc_high_clear": 88.0,
     "soc_critical_high": 95.0,
+    "soc_critical_high_clear": 93.0,
     "temp_warning": 35.0,
+    "temp_warning_clear": 33.0,
     "temp_critical": 45.0,
+    "temp_critical_clear": 42.0,
     "voltage_low": 750.0,
+    "voltage_low_clear": 760.0,
     "voltage_high": 850.0,
+    "voltage_high_clear": 840.0,
     "current_warning": 300.0,
+    "current_warning_clear": 280.0,
     "current_critical": 350.0,
+    "current_critical_clear": 325.0,
     # Site shortfall logic
-    "site_shortfall_kw": 5.0,     # trigger if |P_set - P_actual| > this...
-    "site_shortfall_secs": 5,     # ...for this many consecutive seconds
+    "site_shortfall_kw": 5.0,       # trigger if |P_set - P_actual| > this...
+    "site_shortfall_clear_kw": 3.0, # clear once mismatch returns below this
+    "site_shortfall_secs": 5,       # ...for this many consecutive seconds
 }
 
-SEVERITY = {"INFO": 1, "WARNING": 2, "CRITICAL": 3, "FAULT": 4}
+SEVERITY = {"INFO": 1, "WARNING": 2, "CRITICAL": 3, "FAULT": 4, "TRIP": 4}
 
 MODE_IDLE = 1
 MODE_CHARGE = 2
@@ -269,95 +280,117 @@ def check_and_log_alarm(cur, alarm_code, condition, severity_name, message, valu
     if condition:
         if alarm_code not in active_alarms:
             log_alarm(cur, alarm_code, severity_name, message, value, threshold)
-            active_alarms.add(alarm_code)
+            if SEVERITY.get(severity_name, SEVERITY["INFO"]) > SEVERITY["INFO"]:
+                active_alarms.add(alarm_code)
         return True
     else:
         clear_alarm(cur, alarm_code)
         active_alarms.discard(alarm_code)
         return False
 
+
+def check_hysteresis_alarm(
+    cur,
+    alarm_code,
+    value,
+    trigger_condition,
+    clear_condition,
+    severity_name,
+    message,
+    threshold,
+):
+    """Raise on trigger condition and clear only on explicit hysteresis clear condition."""
+    if alarm_code in active_alarms:
+        condition = not clear_condition
+    else:
+        condition = trigger_condition
+    return check_and_log_alarm(cur, alarm_code, condition, severity_name, message, value, threshold)
+
+
 # =========================================================
 #  ALARM CHECKS (SITE LEVEL)
 # =========================================================
 def check_all_alarms(cur, soc, temp_c, v_dc_bus, current_a, p_set_kw_in, p_actual_kw_in):
     # SOC
-    check_and_log_alarm(
-        cur, "SOC_CRITICAL_LOW",
+    check_hysteresis_alarm(
+        cur, "SOC_CRITICAL_LOW", soc,
         soc <= ALARM_THRESHOLDS["soc_critical_low"],
-        "CRITICAL", f"Site SOC critically low: {soc:.1f}%", soc, ALARM_THRESHOLDS["soc_critical_low"]
+        soc >= ALARM_THRESHOLDS["soc_critical_low_clear"],
+        "CRITICAL", f"Site SOC critically low: {soc:.1f}%", ALARM_THRESHOLDS["soc_critical_low"]
     )
-    check_and_log_alarm(
-        cur, "SOC_LOW",
-        (soc <= ALARM_THRESHOLDS["soc_low"]) and (soc > ALARM_THRESHOLDS["soc_critical_low"]),
-        "WARNING", f"Site SOC low: {soc:.1f}%", soc, ALARM_THRESHOLDS["soc_low"]
+    check_hysteresis_alarm(
+        cur, "SOC_LOW", soc,
+        soc <= ALARM_THRESHOLDS["soc_low"] and "SOC_CRITICAL_LOW" not in active_alarms,
+        soc >= ALARM_THRESHOLDS["soc_low_clear"] or "SOC_CRITICAL_LOW" in active_alarms,
+        "WARNING", f"Site SOC low: {soc:.1f}%", ALARM_THRESHOLDS["soc_low"]
     )
-    check_and_log_alarm(
-        cur, "SOC_CRITICAL_HIGH",
+    check_hysteresis_alarm(
+        cur, "SOC_CRITICAL_HIGH", soc,
         soc >= ALARM_THRESHOLDS["soc_critical_high"],
-        "CRITICAL", f"Site SOC critically high: {soc:.1f}%", soc, ALARM_THRESHOLDS["soc_critical_high"]
+        soc <= ALARM_THRESHOLDS["soc_critical_high_clear"],
+        "CRITICAL", f"Site SOC critically high: {soc:.1f}%", ALARM_THRESHOLDS["soc_critical_high"]
     )
-    check_and_log_alarm(
-        cur, "SOC_HIGH",
-        (soc >= ALARM_THRESHOLDS["soc_high"]) and (soc < ALARM_THRESHOLDS["soc_critical_high"]),
-        "WARNING", f"Site SOC high: {soc:.1f}%", soc, ALARM_THRESHOLDS["soc_high"]
+    check_hysteresis_alarm(
+        cur, "SOC_HIGH", soc,
+        soc >= ALARM_THRESHOLDS["soc_high"] and "SOC_CRITICAL_HIGH" not in active_alarms,
+        soc <= ALARM_THRESHOLDS["soc_high_clear"] or "SOC_CRITICAL_HIGH" in active_alarms,
+        "WARNING", f"Site SOC high: {soc:.1f}%", ALARM_THRESHOLDS["soc_high"]
     )
 
     # Temperature
-    check_and_log_alarm(
-        cur, "TEMP_CRITICAL",
+    check_hysteresis_alarm(
+        cur, "TEMP_CRITICAL", temp_c,
         temp_c >= ALARM_THRESHOLDS["temp_critical"],
-        "CRITICAL", f"Site temperature critical: {temp_c:.1f}°C", temp_c, ALARM_THRESHOLDS["temp_critical"]
+        temp_c <= ALARM_THRESHOLDS["temp_critical_clear"],
+        "CRITICAL", f"Site temperature critical: {temp_c:.1f}°C", ALARM_THRESHOLDS["temp_critical"]
     )
-    check_and_log_alarm(
-        cur, "TEMP_WARNING",
-        (temp_c >= ALARM_THRESHOLDS["temp_warning"]) and (temp_c < ALARM_THRESHOLDS["temp_critical"]),
-        "WARNING", f"Site temperature elevated: {temp_c:.1f}°C", temp_c, ALARM_THRESHOLDS["temp_warning"]
+    check_hysteresis_alarm(
+        cur, "TEMP_HIGH", temp_c,
+        temp_c >= ALARM_THRESHOLDS["temp_warning"] and "TEMP_CRITICAL" not in active_alarms,
+        temp_c <= ALARM_THRESHOLDS["temp_warning_clear"] or "TEMP_CRITICAL" in active_alarms,
+        "WARNING", f"Site temperature high: {temp_c:.1f}°C", ALARM_THRESHOLDS["temp_warning"]
     )
+    clear_alarm(cur, "TEMP_WARNING")
+    active_alarms.discard("TEMP_WARNING")
 
-    # Voltage
-    check_and_log_alarm(
-        cur, "VOLTAGE_LOW",
-        v_dc_bus < ALARM_THRESHOLDS["voltage_low"],
-        "WARNING", f"DC bus voltage low: {v_dc_bus:.1f}V", v_dc_bus, ALARM_THRESHOLDS["voltage_low"]
+    # DC bus voltage
+    check_hysteresis_alarm(
+        cur, "DC_BUS_LOW", v_dc_bus,
+        v_dc_bus <= ALARM_THRESHOLDS["voltage_low"],
+        v_dc_bus >= ALARM_THRESHOLDS["voltage_low_clear"],
+        "WARNING", f"DC bus voltage low: {v_dc_bus:.1f}V", ALARM_THRESHOLDS["voltage_low"]
     )
-    check_and_log_alarm(
-        cur, "VOLTAGE_HIGH",
-        v_dc_bus > ALARM_THRESHOLDS["voltage_high"],
-        "WARNING", f"DC bus voltage high: {v_dc_bus:.1f}V", v_dc_bus, ALARM_THRESHOLDS["voltage_high"]
+    check_hysteresis_alarm(
+        cur, "DC_BUS_HIGH", v_dc_bus,
+        v_dc_bus >= ALARM_THRESHOLDS["voltage_high"],
+        v_dc_bus <= ALARM_THRESHOLDS["voltage_high_clear"],
+        "WARNING", f"DC bus voltage high: {v_dc_bus:.1f}V", ALARM_THRESHOLDS["voltage_high"]
     )
+    for legacy_code in ("VOLTAGE_LOW", "VOLTAGE_HIGH"):
+        clear_alarm(cur, legacy_code)
+        active_alarms.discard(legacy_code)
 
     # Current
     abs_current = abs(current_a)
-    check_and_log_alarm(
-        cur, "CURRENT_CRITICAL",
+    check_hysteresis_alarm(
+        cur, "CURRENT_CRITICAL", abs_current,
         abs_current >= ALARM_THRESHOLDS["current_critical"],
-        "CRITICAL", f"Site current critical: {abs_current:.1f}A", abs_current, ALARM_THRESHOLDS["current_critical"]
+        abs_current <= ALARM_THRESHOLDS["current_critical_clear"],
+        "CRITICAL", f"Site current critical: {abs_current:.1f}A", ALARM_THRESHOLDS["current_critical"]
     )
-    check_and_log_alarm(
-        cur, "CURRENT_WARNING",
-        (abs_current >= ALARM_THRESHOLDS["current_warning"]) and (abs_current < ALARM_THRESHOLDS["current_critical"]),
-        "WARNING", f"Site current elevated: {abs_current:.1f}A", abs_current, ALARM_THRESHOLDS["current_warning"]
+    check_hysteresis_alarm(
+        cur, "CURRENT_HIGH", abs_current,
+        abs_current >= ALARM_THRESHOLDS["current_warning"] and "CURRENT_CRITICAL" not in active_alarms,
+        abs_current <= ALARM_THRESHOLDS["current_warning_clear"] or "CURRENT_CRITICAL" in active_alarms,
+        "WARNING", f"Site current high: {abs_current:.1f}A", ALARM_THRESHOLDS["current_warning"]
     )
+    clear_alarm(cur, "CURRENT_WARNING")
+    active_alarms.discard("CURRENT_WARNING")
 
-    # Operational
-    check_and_log_alarm(
-        cur, "CHARGE_AT_HIGH_SOC",
-        soc >= 95.0 and p_set_kw_in > 0,
-        "WARNING", f"Charging attempted at {soc:.1f}% SOC", soc, 95.0
-    )
-    check_and_log_alarm(
-        cur, "DISCHARGE_AT_LOW_SOC",
-        soc <= 5.0 and p_set_kw_in < 0,
-        "WARNING", f"Discharging attempted at {soc:.1f}% SOC", soc, 5.0
-    )
-
-    # POWER_LIMITED (instant, informational). Ignore zero-effective commands.
-    power_diff = abs(p_set_kw_in - p_actual_kw_in)
-    check_and_log_alarm(
-        cur, "POWER_LIMITED",
-        abs(p_set_kw_in) >= 0.5 and power_diff > 1.0,
-        "INFO", f"Power limited: Set={p_set_kw_in:.1f}kW, Actual={p_actual_kw_in:.1f}kW", power_diff, 1.0
-    )
+    # Stage 1 keeps command inhibits as a later explicit step.
+    for legacy_code in ("CHARGE_AT_HIGH_SOC", "DISCHARGE_AT_LOW_SOC", "POWER_LIMITED"):
+        clear_alarm(cur, legacy_code)
+        active_alarms.discard(legacy_code)
 
 # =========================================================
 #  COMMAND READ (CENTRALIZED CURSOR)
@@ -468,7 +501,7 @@ def update_site_shortfall_alarm(cur, p_set_site: float, p_actual_site: float):
             cur,
             "SITE_POWER_SHORTFALL",
             False,
-            "FAULT",
+            "CRITICAL",
             f"Site cannot meet setpoint for {ALARM_THRESHOLDS['site_shortfall_secs']}s. "
             f"Set={p_set_site:.1f}kW Actual={p_actual_site:.1f}kW",
             0.0,
@@ -479,19 +512,21 @@ def update_site_shortfall_alarm(cur, p_set_site: float, p_actual_site: float):
     diff = abs(p_set_site - p_actual_site)
     if diff > ALARM_THRESHOLDS["site_shortfall_kw"]:
         site_shortfall_counter += 1
-    else:
+    elif diff <= ALARM_THRESHOLDS["site_shortfall_clear_kw"]:
         site_shortfall_counter = 0
 
-    condition = site_shortfall_counter >= ALARM_THRESHOLDS["site_shortfall_secs"]
+    trigger_condition = site_shortfall_counter >= ALARM_THRESHOLDS["site_shortfall_secs"]
+    clear_condition = diff <= ALARM_THRESHOLDS["site_shortfall_clear_kw"]
 
-    check_and_log_alarm(
+    check_hysteresis_alarm(
         cur,
         "SITE_POWER_SHORTFALL",
-        condition,
-        "FAULT",
+        diff,
+        trigger_condition,
+        clear_condition,
+        "CRITICAL",
         f"Site cannot meet setpoint for {ALARM_THRESHOLDS['site_shortfall_secs']}s. "
         f"Set={p_set_site:.1f}kW Actual={p_actual_site:.1f}kW",
-        diff,
         ALARM_THRESHOLDS["site_shortfall_kw"],
     )
 
