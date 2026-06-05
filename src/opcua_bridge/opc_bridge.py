@@ -243,6 +243,14 @@ def build_command(mode_id: int, p_set_kw: float):
 # =========================
 _LAST = {}
 
+def write_node_value(node, value, vtype=None):
+    if vtype is not None:
+        dv = ua.DataValue(ua.Variant(value, vtype))
+        node.set_value(dv)
+    else:
+        node.set_value(value)
+
+
 def set_if_changed(node, value, key, deadband=0.0, vtype=None):
     """
     Only update OPC node if it changed (or changed beyond deadband).
@@ -263,12 +271,13 @@ def set_if_changed(node, value, key, deadband=0.0, vtype=None):
         return
 
     _LAST[key] = value
+    write_node_value(node, value, vtype)
 
-    if vtype is not None:
-        dv = ua.DataValue(ua.Variant(value, vtype))
-        node.set_value(dv)
-    else:
-        node.set_value(value)
+
+def force_set_node(node, value, key, vtype=None):
+    """Write an OPC node even when the change cache already has that value."""
+    _LAST[key] = value
+    write_node_value(node, value, vtype)
 
 
 def make_inv_name(i: int) -> str:
@@ -462,12 +471,12 @@ def main():
                 command_p_set, mode_text, error = build_command(cmd_mode, cmd_p_set)
                 if error:
                     print(f"[CMD] Rejected staged command: P_set={cmd_p_set:.1f} kW, Mode={cmd_mode} ({error})")
-                    set_if_changed(site_apply_node, False, "site/apply", deadband=0.0, vtype=ua.VariantType.Boolean)
+                    force_set_node(site_apply_node, False, "site/apply", vtype=ua.VariantType.Boolean)
                     apply_value = False
                 else:
                     conn, ok = insert_command_safe(conn, command_p_set, mode_text)
                     if ok:
-                        set_if_changed(site_apply_node, False, "site/apply", deadband=0.0, vtype=ua.VariantType.Boolean)
+                        force_set_node(site_apply_node, False, "site/apply", vtype=ua.VariantType.Boolean)
                         apply_value = False
 
             last_apply_value = apply_value
