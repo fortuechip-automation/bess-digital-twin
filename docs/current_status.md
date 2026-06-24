@@ -14,6 +14,10 @@ The BESS digital twin currently supports a working simulator → PostgreSQL → 
 - Simulator receives the commands and updates site mode, actual power, current, voltage, temperature, and SOC
 - Ignition dashboard command controls have been tested for both charging and discharging
 - Site-level trend tabs are built for Power, SOC, and DC Electrical telemetry
+- Stage 1 site alarms use separate warning and critical thresholds with hysteresis
+- `SITE_POWER_SHORTFALL` uses a five-cycle debounce and clears when the mismatch recovers or the site returns to idle
+- Controlled live alarm injection supports SOC, temperature, DC voltage, DC current, and power-shortfall scenarios
+- Informational events are stored as cleared history records and do not increase the active alarm count
 
 ## Confirmed Data Flow
 
@@ -99,6 +103,45 @@ Observed values from the trend evidence screenshot:
 
 The reliable historical source remains PostgreSQL `site_status`, which stores one site-level row per simulator cycle.
 
+## Alarm Model Status
+
+Stage 1 of the realistic alarm model is implemented.
+
+Implemented site-level alarms:
+
+- `SOC_HIGH` and `SOC_CRITICAL_HIGH`
+- `SOC_LOW` and `SOC_CRITICAL_LOW`
+- `TEMP_HIGH` and `TEMP_CRITICAL`
+- `DC_BUS_HIGH` and `DC_BUS_LOW`
+- `CURRENT_HIGH` and `CURRENT_CRITICAL`
+- `SITE_POWER_SHORTFALL`
+
+Warning and critical alarms can coexist, allowing the dashboard to show both the developing condition and the more serious threshold. Process alarms self-clear only after crossing their hysteresis clear threshold, which prevents alarm chatter near a limit.
+
+Legacy noisy alarm codes are cleared by the Stage 1 checks. Startup, shutdown, command, and alarm-test lifecycle records remain informational events rather than active alarms.
+
+The live test hook uses the PostgreSQL `alarm_test_injections` table and currently supports:
+
+- `FORCE_SOC`
+- `FORCE_TEMP`
+- `FORCE_VDC`
+- `FORCE_IDC`
+- `FORCE_POWER_SHORTFALL`
+
+Injections are explicit, time-limited, and applied through the normal simulator → PostgreSQL → OPC UA → Ignition data path. Random fault generation is not enabled.
+
+Detailed design and test notes:
+
+- [Alarm model design](progress/2026-06-05_alarm_model_design.md)
+- [Stage 1 alarm test plan](progress/2026-06-05_stage1_alarm_test_plan.md)
+- [Live alarm test hook design](progress/2026-06-05_live_alarm_test_hook_design.md)
+
+Latest automated validation on 2026-06-24:
+
+```text
+17 passed in 2.89s
+```
+
 ## Current System Components
 
 | Component | Status |
@@ -111,6 +154,7 @@ The reliable historical source remains PostgreSQL `site_status`, which stores on
 | Ignition command path | Working |
 | Ignition charge/discharge controls | Working |
 | Alarm table | Working |
+| Stage 1 alarm model and test injection | Working |
 | Secrets management via local env files | Working |
 | AI assistant | Not started |
 | Containerised deployment | Planned |
@@ -118,5 +162,7 @@ The reliable historical source remains PostgreSQL `site_status`, which stores on
 ## Next Improvements
 
 - Refine trend chart styling, axes, and operator labels
-- Add more alarm scenarios
+- Add Stage 2 inverter, battery, and fleet-level alarm scenarios
+- Design latched trip, acknowledgement, manual-reset, and command-inhibit behaviour
+- Add an Ignition alarm table and controlled operator-facing test controls
 - Add inverter and battery detail pages
