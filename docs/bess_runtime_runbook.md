@@ -35,6 +35,7 @@ The repo contains these runtime helper scripts:
     start_bess_stack.sh
     stop_bess_stack.sh
     status_bess_stack.sh
+    run_database_maintenance.sh
 
 All commands below assume:
 
@@ -121,6 +122,31 @@ OPC env:
 
 These files are intentionally ignored by git. Do not commit passwords, tokens, or local credentials.
 
+## Database Retention
+
+The telemetry retention job keeps:
+
+- 30 days of one-second raw `site_status`, `inverter_status`, and `battery_status`
+- five-minute site summaries indefinitely in `site_status_5m`
+- fifteen-minute inverter summaries indefinitely in `inverter_status_15m`
+- fifteen-minute battery summaries indefinitely in `battery_status_15m`
+- 365 days of processed commands and cleared alarms
+- all unprocessed commands and active alarms
+
+Run one normal maintenance cycle:
+
+    ./run_database_maintenance.sh
+
+For the first cleanup of a historical backlog:
+
+    ./run_database_maintenance.sh --delete-until-complete
+
+The job uses a PostgreSQL advisory lock, archives summary buckets before deleting
+raw rows, commits deletions in batches, and applies telemetry-specific
+autovacuum thresholds so deleted pages are promptly reusable. Schedule it once
+daily on the simulator VM. PostgreSQL may retain deleted space inside its table
+files for reuse; that is expected and prevents future table growth.
+
 The simulator launcher loads:
 
     source ./venv/bin/activate
@@ -180,4 +206,3 @@ Recommended next improvements:
 1. Add a freshness indicator to Ignition: last_update, telemetry_age_seconds, or simulator_status.
 2. Convert the helper scripts into systemd services once the refactor is trusted for longer running.
 3. Keep /home/fox/bess-digital-twin as the single source of truth and avoid maintaining a second live copy under /opt/bess_sim.
-

@@ -127,6 +127,7 @@ Runtime deployment:
 - Ignition Perspective integration for live dashboarding and control
 - Alarm table support for SCADA alarm development
 - Local run scripts for repeatable simulator and bridge operation
+- Database retention with long-term downsampling of site and equipment telemetry
 - Documentation for runtime operation, status, and SCADA progress
 
 ## Repository Layout

@@ -18,6 +18,8 @@ The BESS digital twin currently supports a working simulator → PostgreSQL → 
 - `SITE_POWER_SHORTFALL` uses a five-cycle debounce and clears when the mismatch recovers or the site returns to idle
 - Controlled live alarm injection supports SOC, temperature, DC voltage, DC current, and power-shortfall scenarios
 - Informational events are stored as cleared history records and do not increase the active alarm count
+- PostgreSQL retention keeps 30 days of one-second raw telemetry and permanent downsampled site/equipment history
+- Daily batched maintenance and telemetry-specific autovacuum settings prevent unbounded database growth
 
 ## Confirmed Data Flow
 
@@ -103,6 +105,21 @@ Observed values from the trend evidence screenshot:
 
 The reliable historical source remains PostgreSQL `site_status`, which stores one site-level row per simulator cycle.
 
+## Telemetry Retention
+
+The database retention policy is implemented and scheduled daily on the simulator VM.
+
+- Raw `site_status`, `inverter_status`, and `battery_status`: 30 days
+- `site_status_5m`: permanent five-minute site summaries
+- `inverter_status_15m`: permanent fifteen-minute inverter summaries
+- `battery_status_15m`: permanent fifteen-minute battery summaries
+- Cleared alarms and processed commands: 365 days
+- Active alarms and unprocessed commands: retained without age-based deletion
+
+The maintenance job archives summary buckets before deleting raw rows, uses
+bounded delete batches, prevents overlapping runs with a PostgreSQL advisory
+lock, and lowers autovacuum thresholds for the high-volume telemetry tables.
+
 ## Alarm Model Status
 
 Stage 1 of the realistic alarm model is implemented.
@@ -136,10 +153,10 @@ Detailed design and test notes:
 - [Stage 1 alarm test plan](progress/2026-06-05_stage1_alarm_test_plan.md)
 - [Live alarm test hook design](progress/2026-06-05_live_alarm_test_hook_design.md)
 
-Latest automated validation on 2026-06-24:
+Latest automated validation on 2026-06-25:
 
 ```text
-17 passed in 2.89s
+21 passed
 ```
 
 ## Current System Components
@@ -155,6 +172,7 @@ Latest automated validation on 2026-06-24:
 | Ignition charge/discharge controls | Working |
 | Alarm table | Working |
 | Stage 1 alarm model and test injection | Working |
+| Telemetry retention and downsampling | Working |
 | Secrets management via local env files | Working |
 | AI assistant | Not started |
 | Containerised deployment | Planned |
