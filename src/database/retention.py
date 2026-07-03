@@ -234,7 +234,7 @@ def delete_in_batches(conn, table, timestamp_column, cutoff, batch_size, max_bat
     return total_deleted
 
 
-def run_maintenance(conn, policy, delete_until_complete=False, now=None):
+def run_maintenance(conn, policy, delete_until_complete=False, now=None, skip_telemetry_deletes=False):
     now = now or datetime.now(timezone.utc)
     raw_cutoff = cutoff_time(now, policy.raw_days)
     event_cutoff = cutoff_time(now, policy.event_days)
@@ -248,7 +248,8 @@ def run_maintenance(conn, policy, delete_until_complete=False, now=None):
     try:
         with conn.cursor() as cur:
             create_summary_tables(cur)
-            configure_telemetry_autovacuum(cur)
+            if not skip_telemetry_deletes:
+                configure_telemetry_autovacuum(cur)
             summary_counts = {
                 "site_status_5m": summarize_site(cur, raw_cutoff),
                 "inverter_status_15m": summarize_inverters(cur, raw_cutoff),
@@ -256,16 +257,25 @@ def run_maintenance(conn, policy, delete_until_complete=False, now=None):
             }
         conn.commit()
 
+        if skip_telemetry_deletes:
+            # Raw telemetry pruning is owned by TimescaleDB retention policies
+            # (drop_chunks); this job only summarizes and prunes events/commands.
+            telemetry_deleted = {"battery_status": 0, "inverter_status": 0, "site_status": 0}
+        else:
+            telemetry_deleted = {
+                "battery_status": delete_in_batches(
+                    conn, "battery_status", "ts", raw_cutoff, policy.batch_size, max_batches
+                ),
+                "inverter_status": delete_in_batches(
+                    conn, "inverter_status", "ts", raw_cutoff, policy.batch_size, max_batches
+                ),
+                "site_status": delete_in_batches(
+                    conn, "site_status", "ts", raw_cutoff, policy.batch_size, max_batches
+                ),
+            }
+
         deleted_counts = {
-            "battery_status": delete_in_batches(
-                conn, "battery_status", "ts", raw_cutoff, policy.batch_size, max_batches
-            ),
-            "inverter_status": delete_in_batches(
-                conn, "inverter_status", "ts", raw_cutoff, policy.batch_size, max_batches
-            ),
-            "site_status": delete_in_batches(
-                conn, "site_status", "ts", raw_cutoff, policy.batch_size, max_batches
-            ),
+            **telemetry_deleted,
             "bess_commands": delete_in_batches(
                 conn,
                 "bess_commands",
@@ -306,6 +316,14 @@ def parse_args():
         action="store_true",
         help="Remove the full historical backlog instead of limiting this run.",
     )
+    parser.add_argument(
+        "--skip-telemetry-deletes",
+        action="store_true",
+        help=(
+            "Do not delete raw telemetry rows; use when site/inverter/battery "
+            "status tables are TimescaleDB hypertables with retention policies."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -326,7 +344,10 @@ def main():
     try:
         conn = psycopg2.connect(**database_config_from_env())
         summary_counts, deleted_counts = run_maintenance(
-            conn, policy, delete_until_complete=args.delete_until_complete
+            conn,
+            policy,
+            delete_until_complete=args.delete_until_complete,
+            skip_telemetry_deletes=args.skip_telemetry_deletes,
         )
         conn.close()
     except Exception as exc:
