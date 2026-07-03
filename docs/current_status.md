@@ -23,6 +23,8 @@ The BESS digital twin currently supports a working simulator → PostgreSQL → 
 - Daily batched maintenance and telemetry-specific autovacuum settings prevent unbounded database growth
 - Telemetry tables are TimescaleDB hypertables with native compression and 32-day retention policies
 - The simulator and OPC UA bridge run as systemd services with automatic restart on failure or reboot
+- An EMS service on a dedicated VM runs time-of-use arbitrage against a simulated AEMO-style 5-minute market price, with SOC guard bands, hysteresis, critical-alarm stand-down, and manual-override detection
+- Every EMS decision is recorded in ems_decisions with its reasoning and linked command
 
 ## Confirmed Data Flow
 
