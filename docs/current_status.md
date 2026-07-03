@@ -15,8 +15,9 @@ The BESS digital twin currently supports a working simulator → PostgreSQL → 
 - Ignition dashboard command controls have been tested for both charging and discharging
 - Site-level trend tabs are built for Power, SOC, and DC Electrical telemetry
 - Stage 1 site alarms use separate warning and critical thresholds with hysteresis
+- Stage 2 equipment alarms cover inverter temperature, battery temperature, equipment unavailable, and battery SOC imbalance conditions
 - `SITE_POWER_SHORTFALL` uses a five-cycle debounce and clears when the mismatch recovers or the site returns to idle
-- Controlled live alarm injection supports SOC, temperature, DC voltage, DC current, and power-shortfall scenarios
+- Controlled live alarm injection supports site-level and equipment-level alarm scenarios
 - Informational events are stored as cleared history records and do not increase the active alarm count
 - PostgreSQL retention keeps 30 days of one-second raw telemetry and permanent downsampled site/equipment history
 - Daily batched maintenance and telemetry-specific autovacuum settings prevent unbounded database growth
@@ -144,6 +145,11 @@ The live test hook uses the PostgreSQL `alarm_test_injections` table and current
 - `FORCE_VDC`
 - `FORCE_IDC`
 - `FORCE_POWER_SHORTFALL`
+- `FORCE_INV_TEMP`
+- `FORCE_INV_FAULT`
+- `FORCE_BAT_TEMP`
+- `FORCE_BAT_FAULT`
+- `FORCE_BAT_SOC`
 
 Injections are explicit, time-limited, and applied through the normal simulator → PostgreSQL → OPC UA → Ignition data path. Random fault generation is not enabled.
 
@@ -152,11 +158,25 @@ Detailed design and test notes:
 - [Alarm model design](progress/2026-06-05_alarm_model_design.md)
 - [Stage 1 alarm test plan](progress/2026-06-05_stage1_alarm_test_plan.md)
 - [Live alarm test hook design](progress/2026-06-05_live_alarm_test_hook_design.md)
+- [Stage 2 equipment alarm implementation](progress/2026-07-03_stage2_equipment_alarms.md)
 
-Latest automated validation on 2026-06-25:
+Stage 2 equipment alarms are implemented for operator-facing equipment conditions:
+
+- inverter high and critical temperature alarms, e.g. `INV03_TEMP_HIGH`
+- battery high and critical temperature alarms, e.g. `BAT12_TEMP_CRITICAL`
+- inverter and battery unavailable alarms using the existing fault flags
+- fleet-level `BATTERY_SOC_IMBALANCE`
+- controlled equipment alarm injection for inverter temp/fault, battery temp/fault,
+  and battery SOC imbalance scenarios
+
+Stage 2 alarms use the existing `bess_alarms` table and encode equipment source in
+the alarm code. They self-clear using hysteresis and do not yet implement latched
+trip/manual-reset behaviour.
+
+Latest automated validation on 2026-07-03:
 
 ```text
-21 passed
+33 passed
 ```
 
 ## Current System Components
@@ -172,6 +192,8 @@ Latest automated validation on 2026-06-25:
 | Ignition charge/discharge controls | Working |
 | Alarm table | Working |
 | Stage 1 alarm model and test injection | Working |
+| Stage 2 equipment alarms | Working; live smoke validation passed |
+| Stage 2 equipment alarm injection | Working; live raise/clear validation passed |
 | Telemetry retention and downsampling | Working |
 | Secrets management via local env files | Working |
 | AI assistant | Not started |
@@ -180,7 +202,6 @@ Latest automated validation on 2026-06-25:
 ## Next Improvements
 
 - Refine trend chart styling, axes, and operator labels
-- Add Stage 2 inverter, battery, and fleet-level alarm scenarios
 - Design latched trip, acknowledgement, manual-reset, and command-inhibit behaviour
 - Add an Ignition alarm table and controlled operator-facing test controls
 - Add inverter and battery detail pages

@@ -147,18 +147,22 @@ Notes:
 
 Stage 2 adds equipment-specific alarms based on inverter and battery telemetry.
 
+Implementation status as of 2026-07-03: implemented in code and automated tests,
+pending live runtime validation.
+
 | Code pattern | Severity | Source | Trigger | Clear condition | Latch | Operational effect |
 |---|---|---|---|---|---|---|
-| `INVxx_FAULT` | TRIP | Inverter | injected inverter fault true | manual reset | Yes | inverter unavailable |
+| `INVxx_UNAVAILABLE` | WARNING | Inverter | inverter fault true | inverter fault false | No | inverter unavailable |
 | `INVxx_TEMP_HIGH` | WARNING | Inverter | inverter temp `>= 40 C` | `<= 37 C` | No | warning |
 | `INVxx_TEMP_CRITICAL` | CRITICAL | Inverter | inverter temp `>= 50 C` | `<= 45 C` | Maybe | derate/trip later |
-| `BATxx_FAULT` | TRIP | Battery | injected battery rack fault true | manual reset | Yes | battery unavailable |
+| `BATxx_UNAVAILABLE` | WARNING | Battery | battery fault true | battery fault false | No | battery unavailable |
 | `BATxx_TEMP_HIGH` | WARNING | Battery | battery temp `>= 35 C` | `<= 33 C` | No | warning |
 | `BATxx_TEMP_CRITICAL` | CRITICAL | Battery | battery temp `>= 45 C` | `<= 42 C` | Maybe | inhibit/derate later |
 | `BATTERY_SOC_IMBALANCE` | WARNING | Battery fleet | max SOC - min SOC `>= 8%` | `<= 5%` | No | operator warning |
-| `BATTERY_RACK_UNAVAILABLE` | WARNING | Battery | one rack faulted/unavailable | rack available | No/Maybe | reduced capacity later |
 
-Stage 2 should avoid adding dozens of alarms to the UI at once. Start with fleet-level imbalance and one injected inverter/battery fault path.
+Stage 2 avoids schema changes by encoding the equipment source in the alarm code,
+for example `INV03_TEMP_HIGH` or `BAT12_TEMP_CRITICAL`. Latched trips, manual reset,
+command inhibition, and random equipment fault injection remain later work.
 
 ## Proposed Alarm Set - Stage 3
 

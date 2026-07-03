@@ -111,6 +111,17 @@ ALARM_THRESHOLDS = {
     "site_shortfall_kw": 5.0,       # trigger if |P_set - P_actual| > this...
     "site_shortfall_clear_kw": 3.0, # clear once mismatch returns below this
     "site_shortfall_secs": 5,       # ...for this many consecutive seconds
+    # Stage 2 equipment alarms
+    "inverter_temp_warning": 40.0,
+    "inverter_temp_warning_clear": 37.0,
+    "inverter_temp_critical": 50.0,
+    "inverter_temp_critical_clear": 45.0,
+    "battery_temp_warning": 35.0,
+    "battery_temp_warning_clear": 33.0,
+    "battery_temp_critical": 45.0,
+    "battery_temp_critical_clear": 42.0,
+    "battery_soc_imbalance": 8.0,
+    "battery_soc_imbalance_clear": 5.0,
 }
 
 SEVERITY = {"INFO": 1, "WARNING": 2, "CRITICAL": 3, "FAULT": 4, "TRIP": 4}
@@ -417,6 +428,135 @@ def check_all_alarms(cur, soc, temp_c, v_dc_bus, current_a, p_set_kw_in, p_actua
         clear_alarm(cur, legacy_code)
         active_alarms.discard(legacy_code)
 
+
+# =========================================================
+#  ALARM CHECKS (STAGE 2 EQUIPMENT LEVEL)
+# =========================================================
+def format_equipment_code(prefix: str, equipment_id: int, suffix: str) -> str:
+    return f"{prefix}{int(equipment_id):02d}_{suffix}"
+
+
+def check_equipment_temperature_alarms(
+    cur,
+    *,
+    prefix: str,
+    equipment_id: int,
+    equipment_label: str,
+    temp_c: float,
+    warning_threshold: float,
+    warning_clear: float,
+    critical_threshold: float,
+    critical_clear: float,
+):
+    temp_critical_code = format_equipment_code(prefix, equipment_id, "TEMP_CRITICAL")
+    temp_high_code = format_equipment_code(prefix, equipment_id, "TEMP_HIGH")
+
+    check_hysteresis_alarm(
+        cur,
+        temp_critical_code,
+        temp_c,
+        temp_c >= critical_threshold,
+        temp_c <= critical_clear,
+        "CRITICAL",
+        f"{equipment_label} temperature critical: {temp_c:.1f}°C",
+        critical_threshold,
+    )
+    check_hysteresis_alarm(
+        cur,
+        temp_high_code,
+        temp_c,
+        temp_c >= warning_threshold,
+        temp_c <= warning_clear,
+        "WARNING",
+        f"{equipment_label} temperature high: {temp_c:.1f}°C",
+        warning_threshold,
+    )
+
+
+def check_equipment_unavailable_alarm(cur, *, prefix: str, equipment_id: int, equipment_label: str, fault: bool):
+    alarm_code = format_equipment_code(prefix, equipment_id, "UNAVAILABLE")
+    check_and_log_alarm(
+        cur,
+        alarm_code,
+        bool(fault),
+        "WARNING",
+        f"{equipment_label} unavailable or faulted",
+        1.0 if fault else 0.0,
+        1.0,
+    )
+
+
+def check_inverter_alarms(cur, inv_rows):
+    for inv_row in inv_rows:
+        inverter_id, _mode, _p_set_kw, _p_actual_kw, _vdc, _idc, temp_c, fault = inv_row
+        equipment_label = f"Inverter {int(inverter_id):02d}"
+        check_equipment_temperature_alarms(
+            cur,
+            prefix="INV",
+            equipment_id=inverter_id,
+            equipment_label=equipment_label,
+            temp_c=float(temp_c),
+            warning_threshold=ALARM_THRESHOLDS["inverter_temp_warning"],
+            warning_clear=ALARM_THRESHOLDS["inverter_temp_warning_clear"],
+            critical_threshold=ALARM_THRESHOLDS["inverter_temp_critical"],
+            critical_clear=ALARM_THRESHOLDS["inverter_temp_critical_clear"],
+        )
+        check_equipment_unavailable_alarm(
+            cur,
+            prefix="INV",
+            equipment_id=inverter_id,
+            equipment_label=equipment_label,
+            fault=bool(fault),
+        )
+
+
+def check_battery_alarms(cur, bat_rows):
+    for bat_row in bat_rows:
+        battery_id, _soc, _vdc, _idc, _p_dc_kw, temp_c, fault = bat_row
+        equipment_label = f"Battery {int(battery_id):02d}"
+        check_equipment_temperature_alarms(
+            cur,
+            prefix="BAT",
+            equipment_id=battery_id,
+            equipment_label=equipment_label,
+            temp_c=float(temp_c),
+            warning_threshold=ALARM_THRESHOLDS["battery_temp_warning"],
+            warning_clear=ALARM_THRESHOLDS["battery_temp_warning_clear"],
+            critical_threshold=ALARM_THRESHOLDS["battery_temp_critical"],
+            critical_clear=ALARM_THRESHOLDS["battery_temp_critical_clear"],
+        )
+        check_equipment_unavailable_alarm(
+            cur,
+            prefix="BAT",
+            equipment_id=battery_id,
+            equipment_label=equipment_label,
+            fault=bool(fault),
+        )
+
+
+def check_battery_soc_imbalance_alarm(cur, bat_rows):
+    if not bat_rows:
+        return
+
+    soc_values = [float(row[1]) for row in bat_rows]
+    soc_spread = max(soc_values) - min(soc_values)
+    check_hysteresis_alarm(
+        cur,
+        "BATTERY_SOC_IMBALANCE",
+        soc_spread,
+        soc_spread >= ALARM_THRESHOLDS["battery_soc_imbalance"],
+        soc_spread <= ALARM_THRESHOLDS["battery_soc_imbalance_clear"],
+        "WARNING",
+        f"Battery fleet SOC imbalance: spread {soc_spread:.1f}%",
+        ALARM_THRESHOLDS["battery_soc_imbalance"],
+    )
+
+
+def check_stage2_equipment_alarms(cur, inv_rows, bat_rows):
+    check_inverter_alarms(cur, inv_rows)
+    check_battery_alarms(cur, bat_rows)
+    check_battery_soc_imbalance_alarm(cur, bat_rows)
+
 # =========================================================
 #  COMMAND READ (CENTRALIZED CURSOR)
 # =========================================================
@@ -499,6 +639,7 @@ def read_active_alarm_test_injection(cur):
         SELECT
             injection_id,
             UPPER(scenario) AS scenario,
+            target,
             value,
             COALESCE(expires_ts, created_ts + duration_seconds * INTERVAL '1 second') AS expires_ts,
             note
@@ -513,10 +654,11 @@ def read_active_alarm_test_injection(cur):
     row = cur.fetchone()
     if not row:
         return None
-    injection_id, scenario, value, expires_ts, note = row
+    injection_id, scenario, target, value, expires_ts, note = row
     return {
         "injection_id": injection_id,
         "scenario": scenario,
+        "target": target,
         "value": float(value) if value is not None else None,
         "expires_ts": expires_ts,
         "note": note,
@@ -524,7 +666,7 @@ def read_active_alarm_test_injection(cur):
 
 
 def apply_alarm_test_injection(cur, injection, site_tuple):
-    """Apply a Stage 1 test override to the site tuple used for alarms/telemetry."""
+    """Apply a Stage 1 site-level test override to the site tuple used for alarms/telemetry."""
     global active_alarm_test_injection_id
 
     soc, mode, p_set, p_actual, vdc, idc, temp_c = site_tuple
@@ -562,6 +704,85 @@ def apply_alarm_test_injection(cur, injection, site_tuple):
         return site_tuple
 
     return (r2(soc), mode, p_set, p_actual, r2(vdc), r2(idc), r2(temp_c))
+
+
+def parse_equipment_target_id(target, prefix: str, min_id: int, max_id: int):
+    """Parse targets like INV03, inv-3, BAT12, or 12 into an equipment id."""
+    if target is None:
+        return None
+
+    target_text = str(target).strip().upper()
+    for marker in (f"{prefix}-", f"{prefix}_", f"{prefix}:"):
+        if target_text.startswith(marker):
+            target_text = target_text[len(marker):]
+            break
+    else:
+        if target_text.startswith(prefix):
+            target_text = target_text[len(prefix):]
+
+    try:
+        equipment_id = int(target_text)
+    except ValueError:
+        return None
+
+    if min_id <= equipment_id <= max_id:
+        return equipment_id
+    return None
+
+
+def bool_from_injection_value(value, default=True):
+    if value is None:
+        return default
+    return bool(float(value))
+
+
+def apply_equipment_alarm_test_injection(injection, inv_rows, bat_rows):
+    """Apply controlled Stage 2 equipment overrides to telemetry rows before alarm checks."""
+    scenario = injection["scenario"]
+    value = injection["value"]
+    target = injection.get("target")
+
+    inv_rows_out = list(inv_rows)
+    bat_rows_out = list(bat_rows)
+
+    if value is None and scenario not in ("FORCE_INV_FAULT", "FORCE_BAT_FAULT"):
+        return inv_rows_out, bat_rows_out
+
+    if scenario in ("FORCE_INV_TEMP", "FORCE_INV_FAULT"):
+        inverter_id = parse_equipment_target_id(target, "INV", 1, N_INVERTERS)
+        if inverter_id is None:
+            return inv_rows_out, bat_rows_out
+
+        for idx, row in enumerate(inv_rows_out):
+            row_inverter_id, mode, p_set, p_actual, vdc, idc, temp_c, fault = row
+            if int(row_inverter_id) != inverter_id:
+                continue
+            if scenario == "FORCE_INV_TEMP":
+                temp_c = r2(value)
+            elif scenario == "FORCE_INV_FAULT":
+                fault = bool_from_injection_value(value)
+            inv_rows_out[idx] = (row_inverter_id, mode, p_set, p_actual, vdc, idc, temp_c, fault)
+            break
+
+    elif scenario in ("FORCE_BAT_TEMP", "FORCE_BAT_FAULT", "FORCE_BAT_SOC"):
+        battery_id = parse_equipment_target_id(target, "BAT", 1, N_BATTERIES)
+        if battery_id is None:
+            return inv_rows_out, bat_rows_out
+
+        for idx, row in enumerate(bat_rows_out):
+            row_battery_id, soc, vdc, idc, p_dc_kw, temp_c, fault = row
+            if int(row_battery_id) != battery_id:
+                continue
+            if scenario == "FORCE_BAT_TEMP":
+                temp_c = r2(value)
+            elif scenario == "FORCE_BAT_FAULT":
+                fault = bool_from_injection_value(value)
+            elif scenario == "FORCE_BAT_SOC":
+                soc = r2(clamp(value, 0.0, 100.0))
+            bat_rows_out[idx] = (row_battery_id, soc, vdc, idc, p_dc_kw, temp_c, fault)
+            break
+
+    return inv_rows_out, bat_rows_out
 
 
 # =========================================================
@@ -691,11 +912,13 @@ def main():
             injection = read_active_alarm_test_injection(cur)
             if injection:
                 site_tuple = apply_alarm_test_injection(cur, injection, site_tuple)
+                inv_rows, bat_rows = apply_equipment_alarm_test_injection(injection, inv_rows, bat_rows)
             soc_site, mode_site, p_set_site, p_actual_site, vdc_site, idc_site, temp_site = site_tuple
 
             # Alarms
             check_all_alarms(cur, soc_site, temp_site, vdc_site, idc_site, p_set_site, p_actual_site)
             update_site_shortfall_alarm(cur, p_set_site, p_actual_site)
+            check_stage2_equipment_alarms(cur, inv_rows, bat_rows)
 
             # Inserts
             insert_inverters(cur, inv_rows)
