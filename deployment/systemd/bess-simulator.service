@@ -1,0 +1,19 @@
+[Unit]
+Description=BESS Digital Twin - Fleet Simulator
+Documentation=https://github.com/fortuechip-automation/bess-digital-twin
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=fox
+Group=fox
+WorkingDirectory=/home/fox/bess-digital-twin
+ExecStart=/home/fox/bess-digital-twin/start_simulator.sh
+Restart=always
+RestartSec=5
+StandardOutput=append:/home/fox/bess-digital-twin/bess.log
+StandardError=append:/home/fox/bess-digital-twin/bess.log
+
+[Install]
+WantedBy=multi-user.target

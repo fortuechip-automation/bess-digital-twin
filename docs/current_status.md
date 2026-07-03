@@ -21,6 +21,8 @@ The BESS digital twin currently supports a working simulator → PostgreSQL → 
 - Informational events are stored as cleared history records and do not increase the active alarm count
 - PostgreSQL retention keeps 30 days of one-second raw telemetry and permanent downsampled site/equipment history
 - Daily batched maintenance and telemetry-specific autovacuum settings prevent unbounded database growth
+- Telemetry tables are TimescaleDB hypertables with native compression and 32-day retention policies
+- The simulator and OPC UA bridge run as systemd services with automatic restart on failure or reboot
 
 ## Confirmed Data Flow
 

@@ -1,21 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /home/fox/bess-digital-twin
-
-if ! pgrep -f 'python.*src/simulator/bess.py' >/dev/null; then
-  nohup ./start_simulator.sh > bess.log 2>&1 &
-  echo "Started simulator"
-else
-  echo "Simulator already running"
+if [ ! -f /etc/systemd/system/bess-simulator.service ]; then
+  echo "systemd units not installed - run: sudo bash deployment/systemd/install.sh" >&2
+  exit 1
 fi
 
-if ! pgrep -f 'python.*src/opcua_bridge/opc_bridge.py' >/dev/null; then
-  nohup ./start_opc_bridge.sh > opc_bridge.log 2>&1 &
-  echo "Started OPC bridge"
-else
-  echo "OPC bridge already running"
-fi
-
-sleep 2
+sudo systemctl start bess-simulator.service bess-opc-bridge.service
 ./status_bess_stack.sh
