@@ -21,6 +21,7 @@ for u in ${UNITS[@]}; do
     bess-simulator)  pkill -f "python.*src/simulator/bess.py" || true ;;
     bess-opc-bridge) pkill -f "python.*src/opcua_bridge/opc_bridge.py" || true ;;
     bess-ems)        pkill -f "python.*src/ems/ems.py" || true ;;
+    bess-api)        pkill -f "uvicorn src.api.main" || true ;;
   esac
 done
 sleep 2
