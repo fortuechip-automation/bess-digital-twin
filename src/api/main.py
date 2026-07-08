@@ -162,7 +162,21 @@ def battery_history(
     Hint: copy the shape of ems_decisions() above; your SQL needs a WHERE
     with two conditions and two %s parameters.
     """
-    raise HTTPException(status_code=501, detail="EXERCISE 1: not implemented yet - your turn!")
+    rows = db.fetch_all(
+        """
+        SELECT ts, soc, vdc, idc, p_dc_kw, temp_c, fault
+        FROM battery_status
+        WHERE battery_id = %s
+          AND ts > now() - interval '1 hour' * %s
+        ORDER BY ts DESC
+        LIMIT %s
+        """,
+        (battery_id, hours, limit),                      # blank 1: three values, in %s order
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No data found for battery_id {battery_id}")
+    return {"battery_id": battery_id, "count": len(rows), "history": rows}   # blanks 3 & 4
+
 
 
 @app.get("/api/alarms", tags=["exercises"])
@@ -191,4 +205,8 @@ def health():
     Try db.fetch_one("SELECT 1 AS ok") in a try/except - report whether
     the database is reachable instead of crashing.
     """
-    raise HTTPException(status_code=501, detail="EXERCISE 3: not implemented yet - your turn!")
+    try:
+        db.fetch_one("SELECT 1 AS ok")
+        return {"status": "ok", "db": True}      # blank 1
+    except Exception:
+        return {"status": "ok", "db": False}      # blank 2
