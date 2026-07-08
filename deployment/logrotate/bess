@@ -1,0 +1,9 @@
+/home/fox/bess-digital-twin/*.log {
+    weekly
+    rotate 4
+    compress
+    delaycompress
+    copytruncate
+    missingok
+    notifempty
+}
