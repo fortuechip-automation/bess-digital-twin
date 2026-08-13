@@ -158,6 +158,7 @@ def main() -> None:
                 critical = count_critical_alarms(cur)
 
                 if manual_override_active(cur):
+                    new_interval = now_iv != last_logged_interval
                     if not override_logged:
                         insert_decision(
                             cur, None, soc, None,
@@ -166,9 +167,16 @@ def main() -> None:
                         )
                         log("[EMS] Manual override detected - standing down")
                         override_logged = True
+                        last_logged_interval = now_iv
                         # Re-sync so hysteresis restarts cleanly after the hold.
                         last_mode = "IDLE"
                         last_p_kw = 0.0
+                    elif new_interval:
+                        insert_decision(
+                            cur, None, soc, None,
+                            "[interval] Manual operator override active - EMS standing down",
+                        )
+                        last_logged_interval = now_iv
                     time.sleep(POLL_SECONDS)
                     continue
                 override_logged = False
