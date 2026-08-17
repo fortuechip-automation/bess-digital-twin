@@ -90,6 +90,33 @@ unreliable.
   holds a TagPath object that cannot be passed back in. Build a clean config
   dict by hand instead.
 
+## Repeat trigger and full lifecycle
+
+The EMS was restarted (alarm cleared) and stopped again; a second event raised
+at 16:53:26. The alarm clears and re-raises rather than latching once.
+
+Timing note: the 12-minute staleness window runs from the **last heartbeat row**
+in `ems_decisions`, not from when the service stopped. A restart writes a fresh
+heartbeat and resets the clock — restart at 16:41:25 produced the flip at
+16:53, not 12 minutes after the 16:43:27 stop.
+
+Acknowledged while Active, then restarted `bess-ems`, giving
+`Cleared, Acknowledged`. All four states exercised: raise, acknowledge, clear,
+and acknowledgement surviving the clear.
+
+## Alarm Status Table scoped to the `default` provider
+
+The Alarms page was cluttered with Ignition's bundled demo alarms from the
+`Sample_Tags` provider. Scoped non-destructively via a component property:
+
+    AlarmStatusTable → props.filters.active.conditions.provider = default
+
+All BESS alarms are in `default`; all demo content is in `Sample_Tags`.
+Reversible — clearing the field restores them. Note only the active view is
+scoped: `filters.shelved` has no `conditions` node, so demo alarms can still
+appear on the Shelved tab. This is a saved project property, unlike the runtime
+filter chips, which are per-session.
+
 ## Status
 
 - **Step 4 (watchdog alarm on EMS OFFLINE) is complete** and verified against a
