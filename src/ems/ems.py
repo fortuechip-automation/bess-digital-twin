@@ -113,6 +113,24 @@ def insert_command(cur, mode: str, p_kw: float) -> int:
     return int(cur.fetchone()[0])
 
 
+def last_operator_command(cur):
+    """The newest operator (priority >= 1) command, as (mode, p_kw).
+
+    Used at override handover: while the EMS stands down, THIS is what the
+    plant is executing, and it will keep executing it until someone says
+    otherwise.
+    """
+    cur.execute(
+        """
+        SELECT mode_set, p_set_kw FROM bess_commands
+        WHERE priority >= 1
+        ORDER BY ts DESC LIMIT 1
+        """
+    )
+    row = cur.fetchone()
+    return (row[0].upper(), abs(float(row[1]))) if row else ("IDLE", 0.0)
+
+
 def insert_decision(cur, command_fk, soc, target_soc, reasoning) -> None:
     cur.execute(
         """
@@ -168,9 +186,18 @@ def main() -> None:
                         log("[EMS] Manual override detected - standing down")
                         override_logged = True
                         last_logged_interval = now_iv
-                        # Re-sync so hysteresis restarts cleanly after the hold.
-                        last_mode = "IDLE"
-                        last_p_kw = 0.0
+                        # Adopt the OPERATOR's command as our last-known state, not
+                        # IDLE/0. The plant is executing their setpoint and will keep
+                        # executing it until someone commands otherwise -- so that,
+                        # not a convenient fiction about ourselves, is what the next
+                        # decision must be compared against when the hold lapses.
+                        # Setting IDLE/0 here made the EMS believe the plant was
+                        # already at rest, so a dead-band "IDLE 0 kW" decision looked
+                        # like no change and no command was ever sent.
+                        # (Found live 2026-08-27: operator CHARGE 15 kW at 15:42,
+                        #  override lapsed 15:57, EMS decided "holding" at 16:00,
+                        #  16:05 and 16:10 while the battery charged on regardless.)
+                        last_mode, last_p_kw = last_operator_command(cur)
                     elif new_interval:
                         insert_decision(
                             cur, None, soc, None,
