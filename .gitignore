@@ -211,3 +211,7 @@ config/*.local.env
 *.key
 *.crt
 token.txt
+
+# Rotated service logs (logrotate output on bsim/bems; *.log above misses these)
+*.log.[0-9]*
+*.log.gz
