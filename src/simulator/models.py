@@ -20,6 +20,10 @@ BAT_MAX_KW = 150.0
 BAT_ROUNDTRIP_EFF = 0.95
 INV_EFF = 0.97
 
+# Battery thermal lag, in seconds. Chosen so a 1.0 s step reproduces the
+# original fixed 0.18 coefficient exactly: 1 - exp(-1/5.04) = 0.18.
+BATTERY_TEMP_TAU_S = 5.04
+
 
 def clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))

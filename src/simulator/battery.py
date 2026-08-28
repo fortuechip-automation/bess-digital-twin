@@ -1,8 +1,10 @@
+import math
 import random
 
 try:
     from .models import (
         BAT_ROUNDTRIP_EFF,
+        BATTERY_TEMP_TAU_S,
         BatteryProfile,
         BatteryTelemetry,
         clamp,
@@ -54,7 +56,8 @@ class BatteryUnit:
         soh_factor = clamp(self.profile.soh_percent / 100.0, 0.0, 1.0)
         return self.profile.max_discharge_kw * headroom * soh_factor
 
-    def step(self, p_dc_kw: float, dt_hours: float) -> BatteryTelemetry:
+    def step(self, p_dc_kw: float, dt_seconds: float) -> BatteryTelemetry:
+        dt_hours = dt_seconds / 3600.0
         if not self.available:
             p_dc_kw = 0.0
         elif p_dc_kw >= 0:
@@ -75,7 +78,11 @@ class BatteryUnit:
         idc = 0.0 if abs(vdc) < 1e-6 else (p_dc_kw * 1000.0 / vdc)
         load_factor = abs(p_dc_kw) / max(self.profile.max_charge_kw, self.profile.max_discharge_kw, 1.0)
         target_temp = 24.0 + self.profile.temp_offset_c + load_factor * self.profile.thermal_gain
-        self.temp_c += (target_temp - self.temp_c) * 0.18
+        # First-order lag toward target_temp. The coefficient MUST derive from
+        # dt -- a fixed per-step constant silently redefines the time constant
+        # the moment the simulation rate changes.
+        alpha = 1.0 - math.exp(-dt_seconds / BATTERY_TEMP_TAU_S)
+        self.temp_c += (target_temp - self.temp_c) * alpha
         temp_c = self.temp_c + random.uniform(-0.15, 0.15)
 
         return BatteryTelemetry(

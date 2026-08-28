@@ -71,13 +71,13 @@ class Inverter:
             return p_ac_kw / self.profile.efficiency
         return p_ac_kw * self.profile.efficiency
 
-    def step(self, p_set_kw: float, battery_dc_setpoints_kw, dt_hours: float):
+    def step(self, p_set_kw: float, battery_dc_setpoints_kw, dt_seconds: float):
         battery_telemetry = []
         bat_fault_any = False
 
         for battery, requested_p_dc_kw in zip(self.batteries, battery_dc_setpoints_kw):
             p_dc_kw = 0.0 if battery.fault else requested_p_dc_kw
-            telemetry = battery.step(p_dc_kw, dt_hours)
+            telemetry = battery.step(p_dc_kw, dt_seconds)
             battery_telemetry.append(telemetry)
             bat_fault_any = bat_fault_any or telemetry.fault
 

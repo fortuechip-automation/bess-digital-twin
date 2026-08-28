@@ -111,14 +111,13 @@ class BESSFleet:
     def average_soc(self) -> float:
         return sum(b.soc for b in self.batteries) / self.n_batteries
 
-    def step(self, site_p_set_kw: float):
+    def step(self, site_p_set_kw: float, dt_seconds: float = TELEMETRY_INTERVAL):
         site_p_set_limited = clamp(
             site_p_set_kw,
             SITE_MAX_DISCHARGE_KW,
             SITE_MAX_CHARGE_KW,
         )
 
-        dt_hours = TELEMETRY_INTERVAL / 3600.0
         inverter_dispatch = self._dispatch_inverters(site_p_set_limited)
 
         inv_rows = []
@@ -133,7 +132,7 @@ class BESSFleet:
             inv_telemetry, battery_telemetry, p_ac_inv = inverter.step(
                 p_set_kw=inv_set_kw,
                 battery_dc_setpoints_kw=battery_dc_setpoints,
-                dt_hours=dt_hours,
+                dt_seconds=dt_seconds,
             )
 
             inv_rows.append(inv_telemetry.as_db_row())
