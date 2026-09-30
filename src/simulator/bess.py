@@ -37,8 +37,10 @@ from psycopg2.extras import execute_values
 
 try:
     from .fleet import BESSFleet
+    from .grid import GridModel, GridProfile
 except ImportError:
     from fleet import BESSFleet
+    from grid import GridModel, GridProfile
 
 # =========================================================
 #  DB CONFIG
@@ -198,6 +200,12 @@ inverter_fault = [False for _ in range(N_INVERTERS)]
 # Modular fleet model. The DB/command/alarm runtime still lives in this file,
 # but the simulation calculation is delegated to BESSFleet.
 fleet = BESSFleet()
+
+# The power system the plant is connected to. 50 MW makes the 250 kW plant
+# 0.5% of the system: full power moves frequency ~0.17 Hz, just outside the
+# NEM 49.85-50.15 Hz normal band. (GridProfile's 5 MW default would swing it
+# +/-1.7 Hz, past under-frequency load shedding, on ordinary EMS arbitrage.)
+grid = GridModel(GridProfile(system_base_kw=50_000.0))
 
 # =========================================================
 #  DB: CENTRALIZED CONNECTION
@@ -909,6 +917,12 @@ def main():
 
             # Sim step
             inv_rows, bat_rows, site_tuple = simulate_fleet_step(p_set_kw)
+
+            # Grid step on the plant's REAL power, taken before any alarm-test
+            # injection rewrites site_tuple -- faked telemetry must not move
+            # the physics. Positive = charging = a load, pulling frequency down.
+            freq_hz = grid.step(site_tuple[3], TELEMETRY_INTERVAL)
+
             injection = read_active_alarm_test_injection(cur)
             if injection:
                 site_tuple = apply_alarm_test_injection(cur, injection, site_tuple)
@@ -932,7 +946,8 @@ def main():
                 f"[{datetime.now().strftime('%H:%M:%S')}] SITE → "
                 f"SOC={soc_site:.2f}% | P_set={p_set_site:.1f} kW | "
                 f"P_actual={p_actual_site:.1f} kW | Vdc={vdc_site:.1f} V | "
-                f"I={idc_site:.1f} A | Temp={temp_site:.1f} °C | Mode={mode_site} ({map_mode_id_to_text(mode_site)})"
+                f"I={idc_site:.1f} A | Temp={temp_site:.1f} °C | Mode={mode_site} ({map_mode_id_to_text(mode_site)}) | "
+                f"f={freq_hz:.3f} Hz RoCoF={grid.rocof_hz_s:+.4f} Hz/s"
                 f"{alarm_indicator}"
             )
 
