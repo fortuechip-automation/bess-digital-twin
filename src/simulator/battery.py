@@ -14,6 +14,7 @@ try:
 except ImportError:
     from models import (
         BAT_ROUNDTRIP_EFF,
+        BATTERY_TEMP_TAU_S,
         BatteryProfile,
         BatteryTelemetry,
         clamp,
