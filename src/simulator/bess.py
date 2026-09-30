@@ -11,6 +11,7 @@ DB Tables (already exist in your DB):
   - inverter_status  (10 rows/sec)
   - battery_status   (20 rows/sec)
   - bess_alarms      (alarms)
+  - grid_status      (1 row/sec, grid frequency; created at startup)
 
 Commands:
   - reads from bess_commands (site-level command)
@@ -243,6 +244,49 @@ def init_alarm_table(cur):
     """
     cur.execute(sql)
     print("[INIT] Alarm table initialized")
+
+
+def init_grid_status_table(conn, cur):
+    """Grid frequency history, one row per simulator cycle.
+
+    Kept out of site_status on purpose: site_status is the plant, this is the
+    power system the plant is connected to, and nothing already reading
+    site_status (Grafana, Ignition, bess-viz) has to change.
+    """
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS grid_status (
+            ts TIMESTAMPTZ NOT NULL PRIMARY KEY,
+            freq_hz REAL,
+            rocof_hz_s REAL,
+            disturbance_kw REAL
+        );
+        """
+    )
+    conn.commit()
+
+    # Same shape as the other telemetry tables: a hypertable with a 32-day
+    # retention policy, so 86,400 rows a day cannot grow forever. Optional --
+    # if TimescaleDB refuses, keep simulating into a plain table rather than
+    # crash-looping the plant over a housekeeping step.
+    try:
+        cur.execute("SELECT create_hypertable('grid_status', 'ts', if_not_exists => TRUE, migrate_data => TRUE);")
+        cur.execute("SELECT add_retention_policy('grid_status', INTERVAL '32 days', if_not_exists => TRUE);")
+        conn.commit()
+        print("[INIT] grid_status table initialized (hypertable, 32-day retention)")
+    except Exception as e:
+        conn.rollback()
+        print(f"[INIT] grid_status table initialized WITHOUT hypertable/retention: {e}")
+
+
+def insert_grid(cur):
+    cur.execute(
+        """
+        INSERT INTO grid_status (ts, freq_hz, rocof_hz_s, disturbance_kw)
+        VALUES (NOW(), %s, %s, %s)
+        """,
+        grid.as_db_row(),
+    )
 
 
 def init_alarm_test_injection_table(cur):
@@ -903,6 +947,8 @@ def main():
     try:
         init_alarm_table(cur)
         init_alarm_test_injection_table(cur)
+        conn.commit()
+        init_grid_status_table(conn, cur)
         load_active_alarms(cur)
         log_event(cur, "SYSTEM_START", "BESS fleet simulation started", r2(fleet.average_soc), None)
         if clear_alarm(cur, "SYSTEM_FAULT"):
@@ -938,6 +984,9 @@ def main():
             insert_inverters(cur, inv_rows)
             insert_batteries(cur, bat_rows)
             insert_site(cur, site_tuple, len(active_alarms))
+            # Same transaction as site_status, so NOW() gives both rows the
+            # identical ts -- plant power and grid frequency line up exactly.
+            insert_grid(cur)
 
             conn.commit()
 

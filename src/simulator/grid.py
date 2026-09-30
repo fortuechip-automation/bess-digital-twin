@@ -107,5 +107,9 @@ class GridModel:
         return self.frequency_hz
 
     def as_db_row(self) -> tuple:
-        """(freq_hz, rocof_hz_s, disturbance_kw) for grid_status."""
-        return (r2(self.frequency_hz), round(self.rocof_hz_s, 4), r2(self.disturbance_kw))
+        """(freq_hz, rocof_hz_s, disturbance_kw) for grid_status.
+
+        Frequency keeps 3 decimals (mHz): ambient noise is a few mHz, so r2()
+        would flatten an idle trend to a straight 50.00 line.
+        """
+        return (round(self.frequency_hz, 3), round(self.rocof_hz_s, 4), r2(self.disturbance_kw))
