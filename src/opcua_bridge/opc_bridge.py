@@ -6,11 +6,13 @@ Creates OPC structure:
   BESS1/Site/*
   BESS1/Inverters/INV01..INV10/*
   BESS1/Batteries/BAT01..BAT20/*
+  BESS1/.../Alarms/<code>   one Boolean alarm bit per simulator alarm
 
 Reads telemetry from Postgres tables:
   - site_status (latest)
   - inverter_status (latest row per inverter_id)
   - battery_status (latest row per battery_id)
+  - bess_alarms (active alarm codes -> alarm bits)
 
 Writes commands to:
   - bess_commands (when OPC Site/ApplyCommand is pulsed)
@@ -33,6 +35,8 @@ from datetime import datetime
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from opcua import Server, ua
+
+from alarm_bits import alarm_bit_catalogue, alarm_bit_states, unknown_active_codes
 
 # =========================
 #  DB CONFIG
@@ -155,6 +159,19 @@ def read_latest_battery_status(conn):
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(sql)
         return cur.fetchall()
+
+
+def read_active_alarm_codes(conn):
+    """Codes of uncleared alarms above INFO, the same rule as the simulator's own count."""
+    sql = """
+        SELECT DISTINCT alarm_code
+        FROM bess_alarms
+        WHERE cleared = FALSE
+          AND severity > 1;
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        return {row[0] for row in cur.fetchall()}
 
 
 def insert_command_safe(conn, p_set_kw, mode_text, source_ip=None):
@@ -326,9 +343,11 @@ def main():
 
     # --- Inverters ---
     inv_nodes = {}  # inverter_id -> dict of nodes
+    inv_objs = {}   # inverter_id -> OPC object (parent for its Alarms folder)
     for inv_id in range(1, N_INVERTERS + 1):
         inv_name = make_inv_name(inv_id)
         inv_obj = inv_root.add_object(idx, inv_name)
+        inv_objs[inv_id] = inv_obj
 
         inv_nodes[inv_id] = {
             "Mode":        inv_obj.add_variable(idx, "Mode",        1),
@@ -342,9 +361,11 @@ def main():
 
     # --- Batteries ---
     bat_nodes = {}  # battery_id -> dict of nodes
+    bat_objs = {}   # battery_id -> OPC object
     for bat_id in range(1, N_BATTERIES + 1):
         bat_name = make_bat_name(bat_id)
         bat_obj = bat_root.add_object(idx, bat_name)
+        bat_objs[bat_id] = bat_obj
 
         bat_nodes[bat_id] = {
             "SOC":     bat_obj.add_variable(idx, "SOC",     50.0),
@@ -354,6 +375,31 @@ def main():
             "Temp_C":  bat_obj.add_variable(idx, "Temp_C",  25.0),
             "Fault":   bat_obj.add_variable(idx, "Fault",   False),
         }
+
+    # --- Alarm bits ---
+    # Created LAST and with fixed string NodeIds (ns=2;s=BESS1/Site/Alarms/SOC_LOW).
+    # Ignition addresses the tags above by NUMBER (e.g. BAT20/Fault = i=234), and
+    # numbers are handed out in creation order, so anything created earlier
+    # would shift every existing tag.
+    alarm_catalogue = alarm_bit_catalogue(N_INVERTERS, N_BATTERIES)
+    alarm_parents = {"BESS1/Site": site_obj}
+    alarm_parents.update({f"BESS1/Inverters/{make_inv_name(i)}": o for i, o in inv_objs.items()})
+    alarm_parents.update({f"BESS1/Batteries/{make_bat_name(i)}": o for i, o in bat_objs.items()})
+    alarm_folders = {}
+    alarm_bit_nodes = {}  # alarm_code -> Boolean node
+    for code, folder_path, tag_name in alarm_catalogue:
+        folder = alarm_folders.get(folder_path)
+        if folder is None:
+            parent = alarm_parents[folder_path.rsplit("/", 1)[0]]
+            folder = parent.add_object(ua.NodeId(folder_path, idx), ua.QualifiedName("Alarms", idx))
+            alarm_folders[folder_path] = folder
+        alarm_bit_nodes[code] = folder.add_variable(
+            ua.NodeId(f"{folder_path}/{tag_name}", idx),
+            ua.QualifiedName(tag_name, idx),
+            False,
+            varianttype=ua.VariantType.Boolean,
+        )
+    warned_unknown_codes = set()
 
     print(f"[OPC] Starting OPC UA server at {OPC_ENDPOINT} …")
     server.start()
@@ -373,6 +419,7 @@ def main():
                 site = read_latest_site_status(conn)
                 invs = read_latest_inverter_status(conn)
                 bats = read_latest_battery_status(conn)
+                active_codes = read_active_alarm_codes(conn)
             except Exception as e:
                 print(f"[DB] Read error: {e} (reconnecting)")
                 try:
@@ -381,6 +428,7 @@ def main():
                     pass
                 conn = connect_db()
                 site, invs, bats = None, [], []
+                active_codes = None  # unknown: leave alarm bits as they were
 
             # ===== 2) PUSH TELEMETRY TO OPC (ONLY IF CHANGED) =====
             if site:
@@ -458,6 +506,15 @@ def main():
                 set_if_changed(nodes["P_dc_kW"], pdc, f"bat/{bat_id}/pdc", deadband=P_DEADBAND, vtype=ua.VariantType.Float)
                 set_if_changed(nodes["Temp_C"], temp, f"bat/{bat_id}/temp", deadband=T_DEADBAND, vtype=ua.VariantType.Float)
                 set_if_changed(nodes["Fault"], fault, f"bat/{bat_id}/fault", deadband=0.0, vtype=ua.VariantType.Boolean)
+
+            # Alarm bits
+            if active_codes is not None:
+                for code, active in alarm_bit_states(active_codes, alarm_catalogue).items():
+                    set_if_changed(alarm_bit_nodes[code], active, f"alarm/{code}", vtype=ua.VariantType.Boolean)
+                for code in unknown_active_codes(active_codes, alarm_catalogue):
+                    if code not in warned_unknown_codes:
+                        print(f"[ALARM] Active code {code} has no alarm bit; add it to alarm_bits.py")
+                        warned_unknown_codes.add(code)
 
             # ===== 3) WATCH OPC APPLY AND WRITE ONE COHERENT COMMAND TO DB =====
             try:
