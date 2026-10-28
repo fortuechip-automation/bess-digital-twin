@@ -1,212 +1,143 @@
 # BESS Digital Twin
 
-A working Battery Energy Storage System (BESS) digital twin lab for learning industrial automation, SCADA integration, telemetry pipelines, and control-system architecture.
+A working digital twin of a Battery Energy Storage System (BESS), built as a small
+industrial control lab: a plant simulator, a historian database, an OPC UA server,
+Ignition SCADA, an energy management system (EMS), an API and Grafana, each on its own
+virtual machine.
 
-The project runs as a small distributed OT-style lab on Proxmox: a Python simulator produces BESS telemetry, PostgreSQL stores live state and commands, an OPC UA bridge exposes the data to Ignition, and an Ignition Perspective dashboard monitors and controls the simulated plant.
+It exists to practise the whole control stack end to end, the way a real site is put
+together: plant → controls → SCADA → operations.
 
-## Current Status
+![Ignition SCADA dashboard](docs/assets/screenshots/portfolio/styled-bess-dashboard-layout.png)
 
-The core simulator -> database -> OPC UA -> Ignition loop is working.
+## What it does
 
-- Python BESS simulator models site, inverter, and battery telemetry.
-- PostgreSQL stores site status, equipment telemetry, alarms, and commands.
-- OPC UA bridge publishes live values from PostgreSQL for SCADA consumption.
-- Ignition Perspective displays live BESS values and sends charge/discharge commands.
-- Ignition Perspective includes split site trend tabs for power, SOC, and DC electrical telemetry.
-- Runtime helper scripts start, stop, and check the simulator and OPC bridge.
-- Local environment files keep credentials out of git.
-
-See [docs/current_status.md](docs/current_status.md) for the latest working state and test evidence.
-
-## Why This Project Exists
-
-This repo is a practical automation lab, not just a toy simulator. It is designed to show how a BESS-style control system can be structured across realistic layers:
-
-- plant simulation and state modelling
-- telemetry persistence
-- command handling
-- OPC UA industrial communication
-- SCADA dashboard integration
-- alarm and runtime operations planning
-- Proxmox-hosted lab infrastructure
-
-The goal is to build a portfolio-quality engineering project that demonstrates software, controls, databases, and SCADA working together.
+- **Simulates a 10-inverter, 20-battery plant** once a second: state of charge, DC voltage
+  and current, power, temperatures, faults, and a 50 Hz grid frequency that responds to
+  the plant's power.
+- **Raises its own alarms** (SOC, temperature, DC bus, current, power shortfall, battery
+  imbalance, equipment unavailable) with hysteresis, so they don't chatter.
+- **Stores everything** in PostgreSQL + TimescaleDB, with compression, retention and
+  long-term downsampling.
+- **Publishes it over OPC UA**, including one alarm bit per alarm (see below), and accepts
+  charge / discharge / idle commands back from SCADA.
+- **Ignition Perspective** shows the plant, trends it, alarms on it, and sends operator
+  commands.
+- **An EMS** runs time-of-use arbitrage on a simulated market price. It stands down for
+  critical alarms and for operator commands, so it never fights the operator.
+- **A FastAPI service** exposes site status, fleet data, prices, EMS decisions and commands.
+- **Grafana** dashboards read the historian directly.
 
 ## Architecture
 
-```text
-Proxmox Host (Dell Precision T7810)
-|
-+-- VM1 302: BESS Engine (Ubuntu 22.04.5)
-|   |
-|   +-- bess.py
-|   |   +-- Simulates site, inverter, and battery telemetry
-|   |   +-- Writes telemetry to PostgreSQL
-|   |   +-- Polls latest commands from PostgreSQL
-|   |   +-- Simulator -> PostgreSQL (TCP/5432)
-|   |
-|   +-- opc_bridge.py
-|       +-- Reads telemetry from PostgreSQL
-|       +-- Exposes OPC UA tags for SCADA
-|       +-- Writes SCADA commands to PostgreSQL
-|
-+-- VM2 301: Database Server (Ubuntu 22.04.5)
-|   |
-|   +-- PostgreSQL
-|   +-- TimescaleDB telemetry storage
-|   |
-|   +-- Key tables
-|       +-- bess_telemetry
-|       +-- bess_status
-|       +-- site_status
-|       +-- inverter_status
-|       +-- battery_status
-|       +-- bess_alarms
-|       +-- bess_commands
-|       +-- ems_decisions
-|       +-- system_events
-|
-+-- VM3 303: Ignition SCADA
-    |
-    +-- Perspective dashboard
-    +-- OPC UA telemetry reads from opc_bridge.py on VM1
-    +-- Command writes to opc_bridge.py on VM1
-    +-- Ignition -> OPC UA bridge (TCP/4840)
-```
-
-Runtime deployment:
-
-- Simulation VM: Python simulator and OPC UA bridge
-- Database VM: PostgreSQL telemetry, alarms, and commands
-- Ignition VM: SCADA dashboards, tags, and operator controls
-- Proxmox host: isolated lab infrastructure
-
-## Screenshots
-
-### Ignition SCADA Dashboard
-
-![Styled BESS dashboard layout](docs/assets/screenshots/portfolio/styled-bess-dashboard-layout.png)
-
-### Site Control Panel
-
-![Ignition site control panel](docs/assets/screenshots/portfolio/main-page-site-control-ready.png)
-
-### Command Response Evidence
-
-![Successful 6 kW charge command](docs/assets/screenshots/portfolio/send-command-success-6kw.png)
-
-![Successful 11 kW discharge command](docs/assets/screenshots/portfolio/discharge-command-success-11kw.png)
-
-![Ignition dashboard 16 kW charge response](docs/assets/screenshots/evidence/ignition-dashboard-16kw-charge-response.jpg)
-
-![Ignition dashboard split trend tabs during discharge](docs/assets/screenshots/evidence/ignition-dashboard-split-trends-discharge.jpg)
-
-*Ignition dashboard with separated Power, SOC, and DC Electrical trend tabs during a 15 kW discharge command.*
-
-### Simulator Runtime Log
-
-![Simulator command execution log](docs/assets/screenshots/evidence/simulator-command-execution-log.png)
-
-### Ignition Tag Provider Validation
-
-![Ignition tag provider validation for battery telemetry](docs/assets/screenshots/development/battery-tags-bat02-telemetry.png)
-
-*Ignition tag provider validation for battery telemetry.*
-
-![Ignition tag provider validation for inverter telemetry](docs/assets/screenshots/development/inverter-tags-inv01-telemetry.png)
-
-*Ignition tag provider validation for inverter telemetry.*
-
-## Features
-
-- Site-level BESS simulation with SOC, voltage, current, power, temperature, and operating mode
-- Multi-equipment model covering inverters and battery units
-- Charge, discharge, and idle command handling
-- PostgreSQL-backed telemetry and command path
-- OPC UA bridge for industrial-style data exchange
-- Ignition Perspective integration for live dashboarding and control
-- Alarm table support for SCADA alarm development
-- Local run scripts for repeatable simulator and bridge operation
-- Database retention with long-term downsampling of site and equipment telemetry
-- Documentation for runtime operation, status, and SCADA progress
-
-## Repository Layout
+Five VMs on one Proxmox host. The database is reached over a separate OT network.
 
 ```text
-config/                 Host-specific configuration templates and local env files
-data/                   Sample telemetry and development data
-deployment/             Deployment notes and infrastructure material
-docs/                   Status, runbook, evidence, and progress notes
-src/database/           PostgreSQL client and schema
-src/opcua_bridge/       OPC UA server and bridge logic
-src/simulator/          BESS simulator models and runtime entrypoint
-tests/                  Simulator tests
+  simulator (bsim) ─────► PostgreSQL + TimescaleDB (bessdb) ◄───── EMS + API (bems)
+                                 │                ▲          ◄───── Grafana (bmon)
+                       telemetry │                │ commands
+                                 ▼                │
+                          OPC UA bridge (bsim) ───┘
+                                 │   ▲
+          telemetry, alarm bits  │   │  operator commands        OPC UA, port 4840
+                                 ▼   │
+                         Ignition SCADA (bscada)
 ```
 
-## Run Locally on the Lab VM
+| VM | Runs | systemd units |
+|---|---|---|
+| `bsim` | plant simulator, OPC UA bridge | `bess-simulator`, `bess-opc-bridge` |
+| `bessdb` | PostgreSQL 14 + TimescaleDB | |
+| `bscada` | Ignition 8.3 (Perspective) | |
+| `bems` | EMS, FastAPI | `bess-ems`, `bess-api` |
+| `bmon` | Grafana | |
 
-The live lab runs from:
+## Alarms: one alarm system
 
-```bash
-cd /home/fox/bess-digital-twin
-```
-
-Check runtime status:
-
-```bash
-./status_bess_stack.sh
-```
-
-Start simulator and OPC bridge:
-
-```bash
-./start_bess_stack.sh
-```
-
-Stop both processes:
-
-```bash
-./stop_bess_stack.sh
-```
-
-See [docs/bess_runtime_runbook.md](docs/bess_runtime_runbook.md) for the full operational runbook.
-
-## Validation
-
-Current validation includes:
-
-- simulator unit tests with `pytest`
-- live command test from Ignition to simulator
-- observed telemetry updates in PostgreSQL and Ignition
-- OPC UA bridge runtime checks
-
-Example confirmed command response:
+The simulator decides when an alarm is active, as a real battery system or inverter
+would, and records it in the `bess_alarms` table. The OPC UA bridge turns that into
+**alarm bits**: one true/false tag per alarm, 102 in all.
 
 ```text
-COMMAND RECEIVED: P_set=9.0kW, Mode=CHARGE
-COMMAND EXECUTED: P_set=9.0 kW, Mode=CHARGE
-SITE -> SOC=50.18% | P_set=9.0 kW | P_actual=8.7 kW | I=10.9 A | Mode=2 (CHARGE)
+BESS1/Site/Alarms/SOC_LOW … BATTERY_SOC_IMBALANCE                   12 site alarms
+BESS1/Inverters/INV01..INV10/Alarms/TEMP_HIGH, TEMP_CRITICAL, UNAVAILABLE    30
+BESS1/Batteries/BAT01..BAT20/Alarms/TEMP_HIGH, TEMP_CRITICAL, UNAVAILABLE    60
 ```
 
-## Documentation
+Ignition puts an alarm on each bit, so every plant alarm appears by name in the alarm
+tables and can be acknowledged. Thresholds live in one place only:
+`ALARM_THRESHOLDS` in `src/simulator/bess.py`. The catalogue is in
+`src/opcua_bridge/alarm_bits.py`, and a test fails if the simulator gains a site alarm
+the catalogue doesn't cover.
 
-- [Current project status](docs/current_status.md)
-- [Runtime runbook](docs/bess_runtime_runbook.md)
-- [Portfolio case study](docs/portfolio_case_study.md)
-- [Ignition charge command test](docs/evidence/ignition_charge_command_test.md)
-- [Ignition trend chart plan](docs/progress/2026-05-27_ignition_trend_charts.md)
-- [Ignition dashboard progress](docs/progress/2026-05-15_ignition_dashboard.md)
-- [Inverter overview progress](docs/progress/2026-05-16_ignition_inverter_overview.md)
+The alarm bits use fixed string NodeIds (`ns=2;s=BESS1/Site/Alarms/SOC_LOW`) and are
+created after all other nodes, so the numeric NodeIds Ignition already uses never move.
+
+## Running it
+
+The lab VMs run from a git checkout at `~/bess-digital-twin`. Install the services:
+
+```bash
+sudo bash deployment/systemd/install.sh                    # on bsim: simulator + bridge
+sudo bash deployment/systemd/install.sh bess-ems bess-api  # on bems
+```
+
+Deploy a change: push from the dev machine, then on the VM:
+
+```bash
+cd ~/bess-digital-twin && git pull && sudo systemctl restart bess-opc-bridge
+```
+
+Run the tests from the repo root:
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest -q
+```
+
+Credentials live in `config/*.local.env` files, which git ignores. The full operating
+procedure is in the [runtime runbook](docs/bess_runtime_runbook.md).
+
+## Repository layout
+
+```text
+src/simulator/      plant model: site, inverters, batteries, grid frequency, alarms
+src/opcua_bridge/   OPC UA server: telemetry, alarm bits, command write-back
+src/ems/            energy management: market price, dispatch strategy
+src/api/            FastAPI service
+src/database/       schema, client, retention and downsampling
+sql/                named queries used by the Ignition dashboard
+deployment/         systemd units and installer, logrotate
+docs/               runbook, status, evidence and progress notes
+tests/              pytest suite
+```
 
 ## Roadmap
 
-- Add more realistic alarm scenarios and latching behaviour
-- Add inverter and battery detail pages in Ignition
-- Refine trend chart styling, axes, and operator labels
-- Convert runtime scripts into systemd services
-- Add EMS dispatch and optimisation logic
-- Containerise selected components where it improves repeatability
+- **Power plant controller (PPC).** Grid frequency model done. Next: a writable grid
+  disturbance tag so a "tripped power station" can be triggered from SCADA, then Modbus
+  on the simulator and PPC logic in TwinCAT.
+- **Alarms.** Ignition alarms on all 102 alarm bits, tested with the simulator's
+  alarm-injection table, then the alarm journal for history.
+- **SOC balancing** in the EMS, so the batteries' charge levels don't drift apart.
+- **OPC UA security**: the server still allows anonymous access.
 
-## Security Notes
+## Documentation
 
-Local credentials are kept in ignored `.local.env` files. Do not commit database passwords, OPC UA secrets, tokens, or host-specific credentials.
+- [Current status](docs/current_status.md)
+- [Runtime runbook](docs/bess_runtime_runbook.md)
+- [Portfolio case study](docs/portfolio_case_study.md)
+- [API learning guide](docs/api_learning_guide.md)
+- Progress notes and test evidence: [docs/progress](docs/progress), [docs/evidence](docs/evidence)
+
+## More screenshots
+
+| | |
+|---|---|
+| ![Site control panel](docs/assets/screenshots/portfolio/main-page-site-control-ready.png) Site control panel | ![Split trend tabs during discharge](docs/assets/screenshots/evidence/ignition-dashboard-split-trends-discharge.jpg) Power, SOC and DC trends during a 15 kW discharge |
+| ![6 kW charge command](docs/assets/screenshots/portfolio/send-command-success-6kw.png) 6 kW charge command accepted | ![11 kW discharge command](docs/assets/screenshots/portfolio/discharge-command-success-11kw.png) 11 kW discharge command accepted |
+| ![Battery tags in Ignition](docs/assets/screenshots/development/battery-tags-bat02-telemetry.png) Battery tags in Ignition | ![Simulator command log](docs/assets/screenshots/evidence/simulator-command-execution-log.png) Simulator executing a command |
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).
